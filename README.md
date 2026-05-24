@@ -14,12 +14,19 @@ The project implements the frozen specification:
 - ML Engine: pandas, numpy, scikit-learn, XGBoost, CatBoost, SHAP, Plotly
 - Data layout: raw, anonymized, cleaned, processed, and export directories
 
+## Runtime
+
+Use Python 3.12 for the backend and machine learning environment.
+
+Python 3.12 is the supported runtime because it has broad wheel compatibility across the scientific Python stack used here, especially CatBoost, SHAP, XGBoost, scikit-learn, pandas, and NumPy.
+
 ## Installation
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 ## Running Backend
@@ -85,6 +92,7 @@ Exports are written to `data/exports/` and include:
 ## Troubleshooting
 
 - If CatBoost or XGBoost installation fails, install Microsoft Visual C++ Build Tools and retry.
+- If `py -3.12` is not found on Windows, install Python 3.12 and select "Add python.exe to PATH" during installation.
 - If SHAP plots are slow, run on a smaller sample during development.
 - If score validation fails, check that paper scores do not exceed maximum scores.
 - If paper count cannot be inferred, provide metadata through the request payload or UI.
@@ -92,6 +100,7 @@ Exports are written to `data/exports/` and include:
 ## Reproducibility Notes
 
 - The training pipeline uses fixed random seeds.
+- The supported Python runtime is pinned to 3.12 in `.python-version` and `runtime.txt`.
 - Mode A always runs an 80/20 split and 5-fold cross validation.
 - Generated artifacts are stored under `data/` and `reports/`.
 - Tests cover anonymization, cleaning, metadata recovery, Mode A, Mode B, exports, and invalid data handling.
