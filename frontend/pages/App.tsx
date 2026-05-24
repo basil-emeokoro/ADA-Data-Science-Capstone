@@ -1,9 +1,9 @@
-import { AlertTriangle, Download, Moon, Play, Shield, Sun, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Moon, Play, Shield, Sun, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { MetricTable } from "../components/MetricTable";
 import { PlotPanel } from "../components/PlotPanel";
 import { useTheme } from "../hooks/useTheme";
-import { detectDataset, DetectionResponse, MetadataEntry, PredictionMode, processDataset, ProcessingResponse } from "../services/api";
+import { API_BASE_URL, checkBackendHealth, detectDataset, DetectionResponse, MetadataEntry, PredictionMode, processDataset, ProcessingResponse } from "../services/api";
 
 const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: 40, p2_max: 60, p3_max: 100, p4_max: 100 };
 const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
@@ -18,6 +18,8 @@ export function App() {
   const [result, setResult] = useState<ProcessingResponse | null>(null);
   const [selectedPlot, setSelectedPlot] = useState("actual_vs_predicted");
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("");
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const flattenedPlots = useMemo(() => {
@@ -25,9 +27,14 @@ export function App() {
     return { ...result.plots.eda, ...result.plots };
   }, [result]);
 
+  useEffect(() => {
+    checkBackendHealth().then(setBackendOnline);
+  }, []);
+
   async function onDetect() {
     if (!file) return;
     setBusy(true);
+    setBusyLabel("Detecting CSV structure");
     setError(null);
     try {
       const response = await detectDataset(file);
@@ -40,12 +47,14 @@ export function App() {
       setError(err instanceof Error ? err.message : "Detection failed");
     } finally {
       setBusy(false);
+      setBusyLabel("");
     }
   }
 
   async function onRun() {
     if (!file) return;
     setBusy(true);
+    setBusyLabel(mode === "mode_a" ? "Running benchmark pipeline" : "Predicting missing scores");
     setError(null);
     try {
       const response = await processDataset(file, mode, paperCounts, maxScores);
@@ -56,6 +65,7 @@ export function App() {
       setError(err instanceof Error ? err.message : "Processing failed");
     } finally {
       setBusy(false);
+      setBusyLabel("");
     }
   }
 
@@ -65,6 +75,13 @@ export function App() {
         <div>
           <h1>Predicting Missing Examination Component Scores</h1>
           <p>Privacy-preserving regression benchmarking and real missing-score prediction for 2-, 3-, and 4-paper examinations.</p>
+          <div className="statusRow">
+            <span className={`statusPill ${backendOnline ? "online" : backendOnline === false ? "offline" : ""}`}>
+              {backendOnline ? <CheckCircle2 size={14} /> : <Activity size={14} />}
+              Backend {backendOnline === null ? "checking" : backendOnline ? "online" : "offline"}
+            </span>
+            <span className="statusPill neutral">{API_BASE_URL}</span>
+          </div>
         </div>
         <button className="iconButton" onClick={toggleTheme} aria-label="Toggle theme" title="Toggle theme">
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
@@ -87,9 +104,10 @@ export function App() {
             <button className={mode === "mode_b" ? "active" : ""} onClick={() => setMode("mode_b")}>Mode B Lite</button>
           </div>
           <div className="actions">
-            <button onClick={onDetect} disabled={!file || busy}><Shield size={16} /> Detect</button>
-            <button onClick={onRun} disabled={!file || busy}><Play size={16} /> Run Pipeline</button>
+            <button onClick={onDetect} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Shield size={16} />} Detect</button>
+            <button onClick={onRun} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
           </div>
+          {busy && <div className="progressLine"><span /> {busyLabel}</div>}
           {error && <div className="alert"><AlertTriangle size={16} /> {error}</div>}
         </div>
 
@@ -124,6 +142,23 @@ export function App() {
           </div>
         </div>
       </section>
+
+      {!result && (
+        <section className="readinessBand">
+          <div>
+            <strong>Mode A</strong>
+            <span>Anonymize, export ADA-safe data, clean complete records, hide papers, train models, evaluate, explain.</span>
+          </div>
+          <div>
+            <strong>Mode B Lite</strong>
+            <span>Clean records, detect one missing paper, choose the scenario model, export predictions and reference exceptions.</span>
+          </div>
+          <div>
+            <strong>Dashboard</strong>
+            <span>Charts and ranking tables appear after detection and pipeline execution.</span>
+          </div>
+        </section>
+      )}
 
       {result && (
         <>

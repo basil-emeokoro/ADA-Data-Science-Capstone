@@ -30,14 +30,43 @@ export interface ProcessingResponse {
   errors: string[];
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+async function readError(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    return payload.detail ?? JSON.stringify(payload);
+  } catch {
+    return response.text();
+  }
+}
+
+function networkErrorMessage(error: unknown): string {
+  if (error instanceof TypeError) {
+    return `Could not reach backend at ${API_BASE_URL}. Check that Uvicorn is running and that the frontend was started with VITE_API_BASE_URL set correctly.`;
+  }
+  return error instanceof Error ? error.message : "Request failed";
+}
+
+export async function checkBackendHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function detectDataset(file: File): Promise<DetectionResponse> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/api/detect`, { method: "POST", body: form });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/detect`, { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readError(response));
+    return response.json();
+  } catch (error) {
+    throw new Error(networkErrorMessage(error));
+  }
 }
 
 export async function processDataset(
@@ -56,7 +85,11 @@ export async function processDataset(
       max_scores: maxScores
     })
   );
-  const response = await fetch(`${API_BASE_URL}/api/process`, { method: "POST", body: form });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/process`, { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readError(response));
+    return response.json();
+  } catch (error) {
+    throw new Error(networkErrorMessage(error));
+  }
 }
