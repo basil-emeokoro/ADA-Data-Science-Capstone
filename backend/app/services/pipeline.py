@@ -98,6 +98,7 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
 
     data = cleaned.data.copy()
     data["prediction_status"] = "original"
+    unpredictable_rows: list[pd.DataFrame] = []
     warnings = list(cleaned.warnings)
     metrics: list[dict[str, Any]] = []
     rankings: list[dict[str, Any]] = []
@@ -110,6 +111,10 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
         invalid = subject_df[missing_counts > 1]
         if not invalid.empty:
             warnings.append(f"{len(invalid)} row(s) rejected for {subject_key}: insufficient information due to multiple missing papers.")
+            rejected = invalid.copy()
+            rejected["prediction_status"] = "unpredictable"
+            rejected["unpredictable_reason"] = "multiple missing paper scores"
+            unpredictable_rows.append(rejected)
 
         complete_rows = subject_df[missing_counts == 0].copy()
         if len(complete_rows) < 6:
@@ -132,18 +137,29 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
             scenario = trained.get(target)
             if scenario is None:
                 warnings.append(f"No trained model available for missing {target} in {subject_key}.")
+                rejected = pd.DataFrame([row.to_dict()])
+                rejected["prediction_status"] = "unpredictable"
+                rejected["unpredictable_reason"] = f"no trained model available for {target}"
+                unpredictable_rows.append(rejected)
                 continue
             prepared = _prepare_single_prediction(row, scenario.feature_columns)
             prediction = float(scenario.best_model.predict(prepared)[0])
             data.loc[idx, target] = prediction
             data.loc[idx, "prediction_status"] = "predicted"
 
+    predictable_output = data[data["prediction_status"] != "unpredictable"].copy()
     output_path = settings.export_dir / timestamped_name("mode_b_completed_predictions")
-    data.to_csv(output_path, index=False)
+    predictable_output.to_csv(output_path, index=False)
+    exports = {"completed_prediction_file": str(output_path)}
+    if unpredictable_rows:
+        reference = pd.concat(unpredictable_rows, ignore_index=True, sort=False)
+        reference_path = settings.export_dir / timestamped_name("mode_b_unpredictable_reference")
+        reference.to_csv(reference_path, index=False)
+        exports["unpredictable_reference_file"] = str(reference_path)
     return ProcessingResponse(
         mode=request.mode,
-        rows=len(data),
-        exports={"completed_prediction_file": str(output_path)},
+        rows=len(predictable_output),
+        exports=exports,
         metrics=metrics,
         rankings=rankings,
         plots=plots,

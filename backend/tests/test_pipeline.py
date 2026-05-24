@@ -109,6 +109,10 @@ def test_mode_b_rejects_multiple_missing_papers_with_warning() -> None:
         lines.append(f"{idx},718003,4380102,{idx:03d},{p1_value},{p2_value},{p3}")
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "invalid_mode_b.csv", ProcessingRequest(mode=PredictionMode.mode_b))
     assert any("multiple missing papers" in warning for warning in response.warnings)
+    assert "unpredictable_reference_file" in response.exports
+    reference = pd.read_csv(response.exports["unpredictable_reference_file"])
+    assert "unpredictable_reason" in reference.columns
+    assert "multiple missing paper scores" in set(reference["unpredictable_reason"])
 
 
 def test_multi_subject_mode_a() -> None:
@@ -125,3 +129,18 @@ def test_multi_subject_mode_a() -> None:
     response = run_pipeline(payload.encode(), "multi.csv", ProcessingRequest(mode=PredictionMode.mode_a))
     assert not response.errors
     assert {"718003", "302002"}.issubset({row["subject"] for row in response.metrics})
+
+
+def test_mode_a_filters_incomplete_records_before_benchmarking() -> None:
+    rows = _rows(18)
+    lines = [
+        "S/N,Subject Code,Center Number,Candidate Number,Paper 1,Paper 2,Paper 3",
+        ",,,,Max:40,Max:60,Max:100",
+    ]
+    for idx, (p1, p2, p3) in enumerate(rows, start=1):
+        p2_value = "missing" if idx == 18 else p2
+        lines.append(f"{idx},718003,4380102,{idx:03d},{p1},{p2_value},{p3}")
+    response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_a_incomplete.csv", ProcessingRequest(mode=PredictionMode.mode_a))
+    assert not response.errors
+    assert response.rows == 17
+    assert any("incomplete record" in warning for warning in response.warnings)

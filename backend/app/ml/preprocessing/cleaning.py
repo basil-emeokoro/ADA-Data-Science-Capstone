@@ -75,8 +75,11 @@ def clean_dataset(
             active = data["paper_count"] >= paper_idx
             missing_scores |= active & data[score_col].isna()
         if missing_scores.any():
-            errors.append("Mode A benchmarking requires complete scores before experimental hiding.")
-            return CleaningResult(data=data.loc[~missing_scores].copy(), warnings=warnings, errors=errors)
+            removed_count = int(missing_scores.sum())
+            warnings.append(
+                f"{removed_count} incomplete record(s) removed before Mode A benchmarking because paper scores were missing."
+            )
+            data = data.loc[~missing_scores].copy()
 
     data = add_engineered_features(data)
     warnings.extend(_outlier_warnings(data))
