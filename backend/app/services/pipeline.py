@@ -21,6 +21,7 @@ from backend.app.schemas.pipeline import ProcessingRequest, ProcessingResponse, 
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
 from backend.app.services.csv_parser import parse_examination_csv
 from backend.app.utils.files import timestamped_name
+from backend.app.utils.json import make_json_safe
 
 
 def detect_upload(upload_bytes: bytes, filename: str) -> dict[str, Any]:
@@ -76,9 +77,9 @@ def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
         mode=request.mode,
         rows=len(cleaned.data),
         exports=exports,
-        metrics=metrics,
-        rankings=rankings,
-        plots=plots,
+        metrics=make_json_safe(metrics),
+        rankings=make_json_safe(rankings),
+        plots=make_json_safe(plots),
         warnings=warnings,
         errors=[],
     )
@@ -160,9 +161,9 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
         mode=request.mode,
         rows=len(predictable_output),
         exports=exports,
-        metrics=metrics,
-        rankings=rankings,
-        plots=plots,
+        metrics=make_json_safe(metrics),
+        rankings=make_json_safe(rankings),
+        plots=make_json_safe(plots),
         warnings=warnings,
         errors=[],
     )

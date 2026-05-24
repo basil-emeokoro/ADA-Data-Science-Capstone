@@ -4,7 +4,9 @@ import json
 
 import pandas as pd
 import pytest
+from fastapi.testclient import TestClient
 
+from backend.app.main import app
 from backend.app.ml.preprocessing.cleaning import clean_dataset
 from backend.app.schemas.pipeline import MaxScoreMetadata, PaperCountMetadata, ProcessingRequest, PredictionMode
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
@@ -77,6 +79,20 @@ def test_mode_a_runs_benchmark_and_exports() -> None:
     assert response.rankings
     assert "actual_vs_predicted" in response.plots
     assert "shap" in response.plots
+
+
+def test_process_api_serializes_plotly_outputs() -> None:
+    client = TestClient(app)
+    request = ProcessingRequest(mode=PredictionMode.mode_a)
+    response = client.post(
+        "/api/process",
+        data={"payload": request.model_dump_json()},
+        files={"file": ("sample.csv", _csv(_rows(18)), "text/csv")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]
+    assert "actual_vs_predicted" in payload["plots"]
 
 
 def test_mode_b_predicts_single_missing_score_and_exports() -> None:

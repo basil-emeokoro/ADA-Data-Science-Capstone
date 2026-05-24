@@ -15,6 +15,7 @@ build/
 *.log
 *.tsbuildinfo
 *.csv
+Working Documents/
 data/raw/*
 data/anonymized/*
 data/cleaned/*
