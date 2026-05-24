@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/vite-env.d.ts","./components/metrictable.tsx","./components/plotpanel.tsx","./pages/app.tsx","./services/api.ts","./hooks/usetheme.ts"],"version":"5.9.3"}
