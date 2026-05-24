@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MetricTable } from "../components/MetricTable";
 import { PlotPanel } from "../components/PlotPanel";
 import { useTheme } from "../hooks/useTheme";
-import { API_BASE_URL, checkBackendHealth, detectDataset, DetectionResponse, MetadataEntry, PredictionMode, processDataset, ProcessingResponse } from "../services/api";
+import { API_DISPLAY_URL, checkBackendHealth, detectDataset, DetectionResponse, MetadataEntry, PredictionMode, processDataset, ProcessingResponse } from "../services/api";
 
 const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: 40, p2_max: 60, p3_max: 100, p4_max: 100 };
 const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
@@ -80,7 +80,7 @@ export function App() {
               {backendOnline ? <CheckCircle2 size={14} /> : <Activity size={14} />}
               Backend {backendOnline === null ? "checking" : backendOnline ? "online" : "offline"}
             </span>
-            <span className="statusPill neutral">{API_BASE_URL}</span>
+            <span className="statusPill neutral">{API_DISPLAY_URL}</span>
           </div>
         </div>
         <button className="iconButton" onClick={toggleTheme} aria-label="Toggle theme" title="Toggle theme">

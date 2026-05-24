@@ -30,7 +30,12 @@ export interface ProcessingResponse {
   errors: string[];
 }
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_DISPLAY_URL = API_BASE_URL || "Vite proxy -> http://127.0.0.1:8002";
+
+function apiUrl(path: string): string {
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
 
 async function readError(response: Response): Promise<string> {
   try {
@@ -43,14 +48,14 @@ async function readError(response: Response): Promise<string> {
 
 function networkErrorMessage(error: unknown): string {
   if (error instanceof TypeError) {
-    return `Could not reach backend at ${API_BASE_URL}. Check that Uvicorn is running and that the frontend was started with VITE_API_BASE_URL set correctly.`;
+    return `Could not reach backend through ${API_DISPLAY_URL}. Check that Uvicorn is running on port 8002 and restart the Vite frontend after config changes.`;
   }
   return error instanceof Error ? error.message : "Request failed";
 }
 
 export async function checkBackendHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/health`);
+    const response = await fetch(apiUrl("/api/health"));
     return response.ok;
   } catch {
     return false;
@@ -61,7 +66,7 @@ export async function detectDataset(file: File): Promise<DetectionResponse> {
   const form = new FormData();
   form.append("file", file);
   try {
-    const response = await fetch(`${API_BASE_URL}/api/detect`, { method: "POST", body: form });
+    const response = await fetch(apiUrl("/api/detect"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
     return response.json();
   } catch (error) {
@@ -86,7 +91,7 @@ export async function processDataset(
     })
   );
   try {
-    const response = await fetch(`${API_BASE_URL}/api/process`, { method: "POST", body: form });
+    const response = await fetch(apiUrl("/api/process"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
     return response.json();
   } catch (error) {

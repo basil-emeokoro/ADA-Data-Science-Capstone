@@ -45,7 +45,11 @@ npm install
 npm run dev
 ```
 
-The frontend calls the FastAPI backend through `VITE_API_BASE_URL`, defaulting to `http://127.0.0.1:8000`.
+The frontend calls the FastAPI backend through same-origin `/api` routes during local development.
+
+For local development, the Vite dev server proxies `/api` requests to `http://127.0.0.1:8002`, so no browser CORS configuration is needed when both servers are running locally.
+
+For deployment, set `VITE_API_BASE_URL` to the public backend URL.
 
 ## Upload Workflow
 
