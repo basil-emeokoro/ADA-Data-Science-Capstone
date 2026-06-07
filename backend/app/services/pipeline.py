@@ -79,9 +79,16 @@ def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
     if cleaned.errors:
         return ProcessingResponse(mode=request.mode, rows=len(cleaned.data), exports=exports, warnings=cleaned.warnings, errors=cleaned.errors)
 
-    cleaned_path = settings.export_dir / timestamped_name("mode_a_cleaned")
+    cleaned_path = settings.export_dir / timestamped_name("mode_a_clean_training_records")
     cleaned.data.to_csv(cleaned_path, index=False)
+    exports["clean_training_records"] = str(cleaned_path)
     exports["cleaned_dataset"] = str(cleaned_path)
+    invalid_path = _export_records("mode_a_invalid_records", cleaned.invalid_records)
+    absent_path = _export_records("mode_a_absent_records", cleaned.absent_records)
+    unpredictable_path = _export_records("mode_a_unpredictable_records", pd.DataFrame())
+    exports["invalid_records"] = str(invalid_path)
+    exports["absent_records"] = str(absent_path)
+    exports["unpredictable_records"] = str(unpredictable_path)
 
     scenarios, metrics, rankings, plots, warnings, model_summary = _train_all_scenarios(cleaned.data)
     warnings.extend(cleaned.warnings)
@@ -125,6 +132,7 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
     rankings: list[dict[str, Any]] = []
     scenarios: list[TrainedScenario] = []
     model_summary: list[dict[str, Any]] = []
+    clean_training_frames: list[pd.DataFrame] = []
     plots: dict[str, Any] = {"eda": eda_plots(data)}
 
     for subject_key, subject_df in _subject_groups(data):
@@ -140,6 +148,8 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
             unpredictable_rows.append(rejected)
 
         complete_rows = subject_df[missing_counts == 0].copy()
+        if not complete_rows.empty:
+            clean_training_frames.append(complete_rows)
         if len(complete_rows) < 6:
             warnings.append(f"Not enough complete rows to train Mode B models for {subject_key}.")
             continue
@@ -173,15 +183,27 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
             data.loc[idx, target] = prediction
             data.loc[idx, "prediction_status"] = "predicted"
 
+    absent_output = cleaned.absent_records.copy()
+    if not absent_output.empty:
+        absent_output["prediction_status"] = "absent"
     predictable_output = data[data["prediction_status"] != "unpredictable"].copy()
     output_path = settings.export_dir / timestamped_name("mode_b_completed_predictions")
     predictable_output.to_csv(output_path, index=False)
     exports = {"completed_prediction_file": str(output_path)}
+    clean_training = pd.concat(clean_training_frames, ignore_index=True, sort=False) if clean_training_frames else pd.DataFrame()
+    clean_training_path = _export_records("mode_b_clean_training_records", clean_training)
+    invalid_path = _export_records("mode_b_invalid_records", cleaned.invalid_records)
+    absent_path = _export_records("mode_b_absent_records", absent_output)
+    exports["clean_training_records"] = str(clean_training_path)
+    exports["invalid_records"] = str(invalid_path)
+    exports["absent_records"] = str(absent_path)
     if unpredictable_rows:
         reference = pd.concat(unpredictable_rows, ignore_index=True, sort=False)
-        reference_path = settings.export_dir / timestamped_name("mode_b_unpredictable_reference")
-        reference.to_csv(reference_path, index=False)
-        exports["unpredictable_reference_file"] = str(reference_path)
+        reference_path = _export_records("mode_b_unpredictable_records", reference)
+    else:
+        reference_path = _export_records("mode_b_unpredictable_records", pd.DataFrame())
+    exports["unpredictable_records"] = str(reference_path)
+    exports["unpredictable_reference_file"] = str(reference_path)
     summary_csv_path, summary_json_path = _export_model_summary("mode_b_model_summary", model_summary)
     exports["model_summary_csv"] = str(summary_csv_path)
     exports["model_summary_json"] = str(summary_json_path)
@@ -307,6 +329,12 @@ def _export_model_summary(prefix: str, rows: list[dict[str, Any]]) -> tuple[Path
     frame.to_csv(csv_path, index=False)
     json_path.write_text(frame.to_json(orient="records", indent=2), encoding="utf-8")
     return csv_path, json_path
+
+
+def _export_records(prefix: str, frame: pd.DataFrame) -> Path:
+    path = get_settings().export_dir / timestamped_name(prefix, ".csv")
+    frame.to_csv(path, index=False)
+    return path
 
 
 def _executive_summary(

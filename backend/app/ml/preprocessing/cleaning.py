@@ -8,7 +8,10 @@ import pandas as pd
 from backend.app.schemas.pipeline import MaxScoreMetadata, PaperCountMetadata
 
 
-MISSING_MARKERS = {"", "ab", "abs", "a", "nan", "-99", "missing", "none", "null"}
+INVALID_MARKERS = {"", "-99", "b", "null"}
+ABSENT_MARKERS = {"a", "ab", "abs"}
+PREDICTABLE_MISSING_MARKERS = {"missing", "nan", "none"}
+METADATA_MISSING_MARKERS = INVALID_MARKERS | ABSENT_MARKERS | PREDICTABLE_MISSING_MARKERS
 PAPER_SCORE_COLUMNS = ["p1_score", "p2_score", "p3_score", "p4_score"]
 PAPER_MAX_COLUMNS = ["p1_max", "p2_max", "p3_max", "p4_max"]
 
@@ -16,6 +19,8 @@ PAPER_MAX_COLUMNS = ["p1_max", "p2_max", "p3_max", "p4_max"]
 @dataclass
 class CleaningResult:
     data: pd.DataFrame
+    invalid_records: pd.DataFrame = field(default_factory=pd.DataFrame)
+    absent_records: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -41,7 +46,11 @@ def clean_dataset(
     if "subject_name" not in data.columns:
         data["subject_name"] = "Unknown Subject"
 
-    for column in PAPER_SCORE_COLUMNS + PAPER_MAX_COLUMNS:
+    raw_score_columns = _capture_raw_score_columns(data)
+    for column in PAPER_SCORE_COLUMNS:
+        if column not in data.columns:
+            data[column] = np.nan
+    for column in PAPER_MAX_COLUMNS:
         if column not in data.columns:
             data[column] = np.nan
         data[column] = _to_numeric_score(data[column])
@@ -51,6 +60,19 @@ def clean_dataset(
         errors.append("Paper count could not be inferred for one or more subjects. Provide metadata recovery input.")
         return CleaningResult(data=data, warnings=warnings, errors=errors)
     data["paper_count"] = data["paper_count"].astype(int)
+
+    classification = _classify_score_records(data, raw_score_columns)
+    invalid_records = classification["invalid_records"]
+    absent_records = classification["absent_records"]
+    if not invalid_records.empty:
+        warnings.append(f"{len(invalid_records)} invalid record(s) isolated and excluded from training/prediction.")
+    if not absent_records.empty:
+        warnings.append(f"{len(absent_records)} absent record(s) isolated and excluded from Mode A training.")
+
+    data = classification["cleanable_data"]
+    for column in PAPER_SCORE_COLUMNS:
+        data[column] = _to_numeric_score(data[column])
+    data = _drop_non_applicable_scores(data)
 
     _apply_max_scores(data, detected_max_scores or {}, max_scores or [])
     missing_max = _missing_required_maxima(data)
@@ -65,8 +87,12 @@ def clean_dataset(
         active = data["paper_count"] >= paper_idx
         invalid_mask |= active & data[score_col].notna() & data[max_col].notna() & (data[score_col] > data[max_col])
     if invalid_mask.any():
-        errors.append("Score validation failed: one or more paper scores exceed their maximum score.")
-        return CleaningResult(data=data.loc[~invalid_mask].copy(), warnings=warnings, errors=errors)
+        over_max = data.loc[invalid_mask].copy()
+        over_max["record_status"] = "invalid"
+        over_max["record_reason"] = "score exceeds maximum score"
+        invalid_records = _append_records(invalid_records, over_max)
+        warnings.append(f"{int(invalid_mask.sum())} over-maximum record(s) isolated as invalid.")
+        data = data.loc[~invalid_mask].copy()
 
     if require_complete_scores:
         missing_scores = pd.Series(False, index=data.index)
@@ -75,26 +101,44 @@ def clean_dataset(
             active = data["paper_count"] >= paper_idx
             missing_scores |= active & data[score_col].isna()
         if missing_scores.any():
+            incomplete = data.loc[missing_scores].copy()
+            incomplete["record_status"] = "invalid"
+            incomplete["record_reason"] = "incomplete applicable paper scores"
+            invalid_records = _append_records(invalid_records, incomplete)
             removed_count = int(missing_scores.sum())
-            warnings.append(
-                f"{removed_count} incomplete record(s) removed before Mode A benchmarking because paper scores were missing."
-            )
+            warnings.append(f"{removed_count} incomplete record(s) isolated before Mode A benchmarking.")
             data = data.loc[~missing_scores].copy()
 
     data = add_engineered_features(data)
     warnings.extend(_outlier_warnings(data))
-    return CleaningResult(data=_canonical_order(data), warnings=warnings, errors=errors)
+    return CleaningResult(
+        data=_canonical_order(data),
+        invalid_records=_canonical_order_if_possible(invalid_records),
+        absent_records=_canonical_order_if_possible(absent_records),
+        warnings=warnings,
+        errors=errors,
+    )
+
+
+def _capture_raw_score_columns(data: pd.DataFrame) -> dict[str, pd.Series]:
+    raw: dict[str, pd.Series] = {}
+    for column in PAPER_SCORE_COLUMNS:
+        if column in data.columns:
+            raw[column] = data[column].astype(str).str.strip()
+        else:
+            raw[column] = pd.Series("", index=data.index)
+    return raw
 
 
 def _to_numeric_score(series: pd.Series) -> pd.Series:
     cleaned = series.astype(str).str.strip()
-    cleaned = cleaned.mask(cleaned.str.lower().isin(MISSING_MARKERS), np.nan)
+    cleaned = cleaned.mask(cleaned.str.lower().isin(INVALID_MARKERS | ABSENT_MARKERS | PREDICTABLE_MISSING_MARKERS), np.nan)
     return pd.to_numeric(cleaned, errors="coerce")
 
 
 def _resolve_paper_count(row: pd.Series, metadata: list[PaperCountMetadata]) -> int | None:
     code = None if pd.isna(row.get("subject_code")) else str(row.get("subject_code")).strip()
-    if code and code.lower() not in MISSING_MARKERS:
+    if code and code.lower() not in METADATA_MISSING_MARKERS:
         last_digit = code[-1]
         if last_digit in {"2", "3", "4"}:
             return int(last_digit)
@@ -105,6 +149,54 @@ def _resolve_paper_count(row: pd.Series, metadata: list[PaperCountMetadata]) -> 
         if item.subject_name and item.subject_name.strip().lower() == subject_name:
             return item.paper_count
     return None
+
+
+def _classify_score_records(data: pd.DataFrame, raw_score_columns: dict[str, pd.Series]) -> dict[str, pd.DataFrame]:
+    invalid_mask = pd.Series(False, index=data.index)
+    absent_mask = pd.Series(False, index=data.index)
+    invalid_reasons = pd.Series("", index=data.index, dtype="object")
+    absent_reasons = pd.Series("", index=data.index, dtype="object")
+
+    for paper_idx, score_col in enumerate(PAPER_SCORE_COLUMNS, start=1):
+        applicable = data["paper_count"] >= paper_idx
+        raw = raw_score_columns[score_col].astype(str).str.strip().str.lower()
+        paper_label = f"P{paper_idx}"
+        paper_invalid = applicable & raw.isin(INVALID_MARKERS)
+        paper_absent = applicable & raw.isin(ABSENT_MARKERS)
+        invalid_mask |= paper_invalid
+        absent_mask |= paper_absent
+        invalid_reasons.loc[paper_invalid] = invalid_reasons.loc[paper_invalid].map(
+            lambda value: f"{value}; {paper_label} invalid value".strip("; ")
+        )
+        absent_reasons.loc[paper_absent] = absent_reasons.loc[paper_absent].map(
+            lambda value: f"{value}; {paper_label} absent".strip("; ")
+        )
+
+    invalid_records = data.loc[invalid_mask].copy()
+    if not invalid_records.empty:
+        invalid_records["record_status"] = "invalid"
+        invalid_records["record_reason"] = invalid_reasons.loc[invalid_mask].values
+
+    absent_records = data.loc[~invalid_mask & absent_mask].copy()
+    if not absent_records.empty:
+        absent_records["record_status"] = "absent"
+        absent_records["record_reason"] = absent_reasons.loc[~invalid_mask & absent_mask].values
+
+    cleanable_data = data.loc[~invalid_mask & ~absent_mask].copy()
+    return {
+        "cleanable_data": cleanable_data,
+        "invalid_records": invalid_records,
+        "absent_records": absent_records,
+    }
+
+
+def _drop_non_applicable_scores(data: pd.DataFrame) -> pd.DataFrame:
+    output = data.copy()
+    for paper_idx in range(1, 5):
+        inactive = output["paper_count"] < paper_idx
+        output.loc[inactive, f"p{paper_idx}_score"] = np.nan
+        output.loc[inactive, f"p{paper_idx}_max"] = np.nan
+    return output
 
 
 def _apply_max_scores(
@@ -148,10 +240,11 @@ def add_engineered_features(data: pd.DataFrame) -> pd.DataFrame:
         output.loc[output["paper_count"] < paper_idx, norm_col] = np.nan
         normalized_cols.append(norm_col)
 
-    output["partial_total"] = output[PAPER_SCORE_COLUMNS].sum(axis=1, skipna=True)
-    output["mean_score"] = output[PAPER_SCORE_COLUMNS].mean(axis=1, skipna=True)
-    output["score_spread"] = output[PAPER_SCORE_COLUMNS].max(axis=1, skipna=True) - output[PAPER_SCORE_COLUMNS].min(axis=1, skipna=True)
-    output["score_std"] = output[PAPER_SCORE_COLUMNS].std(axis=1, skipna=True).fillna(0)
+    applicable_scores = output[PAPER_SCORE_COLUMNS]
+    output["partial_total"] = applicable_scores.sum(axis=1, skipna=True)
+    output["mean_score"] = applicable_scores.mean(axis=1, skipna=True)
+    output["score_spread"] = applicable_scores.max(axis=1, skipna=True) - applicable_scores.min(axis=1, skipna=True)
+    output["score_std"] = applicable_scores.std(axis=1, skipna=True).fillna(0)
     output["mean_normalized_score"] = output[normalized_cols].mean(axis=1, skipna=True)
     return output
 
@@ -190,3 +283,18 @@ def _canonical_order(data: pd.DataFrame) -> pd.DataFrame:
     ]
     rest = [column for column in data.columns if column not in first]
     return data[first + rest]
+
+
+def _canonical_order_if_possible(data: pd.DataFrame) -> pd.DataFrame:
+    if data.empty:
+        return data
+    columns = [column for column in _canonical_order(data).columns if column in data.columns]
+    return data[columns]
+
+
+def _append_records(existing: pd.DataFrame, new_records: pd.DataFrame) -> pd.DataFrame:
+    if existing.empty:
+        return new_records.copy()
+    if new_records.empty:
+        return existing
+    return pd.concat([existing, new_records], ignore_index=True, sort=False)

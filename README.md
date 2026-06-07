@@ -76,6 +76,23 @@ npm.cmd run build
 5. For Mode A, click `Export ADA-Safe Dataset` to export anonymized data before cleaning.
 6. Run Mode A benchmarking or Mode B Lite prediction.
 
+## WAEC Paper Rules
+
+Paper applicability is inferred from the final digit of `subject_code`:
+
+- Codes ending in `2`: P1 and P2 are applicable. P3 and P4 are ignored completely.
+- Codes ending in `3`: P1, P2, and P3 are applicable. P4 is ignored completely.
+- Codes ending in `4`: P1, P2, P3, and P4 are applicable.
+
+Invalid values in non-applicable papers do not invalidate a record. For example, `-99` in P3/P4 for a 2-paper subject is ignored.
+
+Applicable-paper values of `-99`, `B`, `null`, or blank are isolated into `invalid_records.csv`.
+
+Applicable-paper values of `A`, `AB`, or `ABS` are treated as absent:
+
+- Mode A excludes absent candidates from training.
+- Mode B does not predict absent papers and exports those rows with `prediction_status = absent`.
+
 ## Mode A Usage
 
 Mode A requires anonymization. The system:
@@ -107,11 +124,17 @@ Mode B Lite does not require anonymization. The system:
 Exports are written to `data/exports/` and include:
 
 - Mode A ADA-safe anonymized CSV
-- Mode A cleaned dataset CSV
+- Mode A clean training records CSV
 - Mode A metrics CSV
 - Mode A model summary CSV and JSON
+- Mode A invalid records CSV
+- Mode A absent records CSV
+- Mode A unpredictable records CSV
 - Mode B completed prediction CSV
-- Mode B unpredictable cases CSV, when applicable
+- Mode B clean training records CSV
+- Mode B invalid records CSV
+- Mode B absent records CSV
+- Mode B unpredictable records CSV
 - Mode B model summary CSV and JSON
 
 CSV exports are intentionally ignored by git because source and generated datasets may contain confidential records.

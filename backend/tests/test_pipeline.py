@@ -48,6 +48,24 @@ def test_parse_sample_style_csv_and_detect_maxima() -> None:
     assert len(df) == 8
 
 
+def test_parse_waec_sample_headers_and_ignore_non_applicable_minus_99() -> None:
+    payload = "\n".join(
+        [
+            "SUBJCODE,CANDIDATE NO,PAPER 1,PAPER 2,PAPER 3,PAPER 4",
+            "103002,4051079107,15,12,-99,-99",
+            "103002,4250367020,45,93,-99,-99",
+        ]
+    ).encode()
+    df, maxima = parse_examination_csv(payload)
+    assert list(df.columns) == ["subject_code", "candidate_number", "p1_score", "p2_score", "p3_score", "p4_score"]
+    result = clean_dataset(df, max_scores=[MaxScoreMetadata(subject_code="103002", p1_max=100, p2_max=100)])
+    assert not result.errors
+    assert len(result.data) == 2
+    assert result.invalid_records.empty
+    assert result.data["p3_score"].isna().all()
+    assert result.data["p4_score"].isna().all()
+
+
 def test_anonymization_replaces_candidate_identifiers() -> None:
     df, _ = parse_examination_csv(_csv(_rows(3)))
     anonymized = anonymize_dataset(df)
@@ -77,8 +95,29 @@ def test_missing_maxima_requires_recovery() -> None:
 def test_invalid_score_above_maximum_is_rejected() -> None:
     data = pd.DataFrame({"subject_code": ["302002"], "p1_score": [57], "p2_score": [30], "p1_max": [40], "p2_max": [60]})
     result = clean_dataset(data)
-    assert result.errors
-    assert "exceed" in result.errors[0]
+    assert not result.errors
+    assert len(result.data) == 0
+    assert len(result.invalid_records) == 1
+    assert "exceeds maximum" in result.invalid_records["record_reason"].iloc[0]
+
+
+def test_applicable_invalid_and_absent_records_are_isolated() -> None:
+    data = pd.DataFrame(
+        {
+            "subject_code": ["718003", "718003", "718003", "718003"],
+            "candidate_number": ["001", "002", "003", "004"],
+            "p1_score": ["20", "B", "A", "25"],
+            "p2_score": ["30", "35", "33", "missing"],
+            "p3_score": ["40", "42", "44", "45"],
+            "p4_score": ["-99", "-99", "-99", "B"],
+        }
+    )
+    result = clean_dataset(data, max_scores=[MaxScoreMetadata(subject_code="718003", p1_max=60, p2_max=60, p3_max=60)])
+    assert not result.errors
+    assert len(result.data) == 2
+    assert len(result.invalid_records) == 1
+    assert len(result.absent_records) == 1
+    assert result.data["p4_score"].isna().all()
 
 
 def test_mode_a_runs_benchmark_and_exports() -> None:
@@ -89,6 +128,9 @@ def test_mode_a_runs_benchmark_and_exports() -> None:
     assert response.exports["metrics"]
     assert response.exports["model_summary_csv"]
     assert response.exports["model_summary_json"]
+    assert response.exports["invalid_records"]
+    assert response.exports["absent_records"]
+    assert response.exports["unpredictable_records"]
     assert response.metrics
     assert response.rankings
     assert "actual_vs_predicted" in response.plots
@@ -140,6 +182,10 @@ def test_mode_b_predicts_single_missing_score_and_exports() -> None:
     assert response.exports["completed_prediction_file"]
     assert response.exports["model_summary_csv"]
     assert response.exports["model_summary_json"]
+    assert response.exports["clean_training_records"]
+    assert response.exports["invalid_records"]
+    assert response.exports["absent_records"]
+    assert response.exports["unpredictable_records"]
     exported = pd.read_csv(response.exports["completed_prediction_file"])
     assert "prediction_status" in exported.columns
     assert "predicted" in set(exported["prediction_status"])
@@ -161,6 +207,22 @@ def test_mode_b_rejects_multiple_missing_papers_with_warning() -> None:
     reference = pd.read_csv(response.exports["unpredictable_reference_file"])
     assert "unpredictable_reason" in reference.columns
     assert "multiple missing paper scores" in set(reference["unpredictable_reason"])
+
+
+def test_mode_b_marks_absent_records_without_prediction() -> None:
+    rows = _rows(18)
+    lines = [
+        "S/N,Subject Code,Center Number,Candidate Number,Paper 1,Paper 2,Paper 3",
+        ",,,,Max:40,Max:60,Max:100",
+    ]
+    for idx, (p1, p2, p3) in enumerate(rows, start=1):
+        p3_value = "ABS" if idx == 18 else p3
+        lines.append(f"{idx},718003,4380102,{idx:03d},{p1},{p2},{p3_value}")
+    response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_b_absent.csv", ProcessingRequest(mode=PredictionMode.mode_b))
+    assert not response.errors
+    absent = pd.read_csv(response.exports["absent_records"])
+    assert "prediction_status" in absent.columns
+    assert set(absent["prediction_status"]) == {"absent"}
 
 
 def test_multi_subject_mode_a() -> None:
