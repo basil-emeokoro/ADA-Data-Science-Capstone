@@ -308,6 +308,36 @@ select {
   margin: 16px 0;
 }
 
+.resultHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 18px 0 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.resultHeader span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.resultHeader h2 {
+  margin: 5px 0 0;
+  font-size: 1.35rem;
+  letter-spacing: 0;
+}
+
+.resultHeader strong {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .summaryBand div,
 .exportItem {
   background: var(--surface);
@@ -333,7 +363,7 @@ select {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
-  margin: 16px 0;
+  margin: 0;
 }
 
 .exportItem {
@@ -348,6 +378,19 @@ select {
   color: var(--muted);
   font-size: 0.82rem;
   overflow-wrap: anywhere;
+}
+
+.exportItem a,
+.successLine a {
+  grid-column: 1 / -1;
+  width: max-content;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .alert {
@@ -367,6 +410,48 @@ select {
   color: var(--success);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.insightGrid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.highlightPanel strong {
+  display: block;
+  color: var(--accent);
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.highlightPanel span {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.qualityGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.qualityGrid span {
+  display: block;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.qualityGrid strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 1.2rem;
 }
 
 .progressLine {
@@ -476,8 +561,13 @@ th {
 @media (max-width: 980px) {
   .workflow,
   .summaryBand,
-  .readinessBand {
+  .readinessBand,
+  .insightGrid {
     grid-template-columns: 1fr;
+  }
+
+  .qualityGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .topbar {
@@ -517,6 +607,11 @@ th {
   .actions button {
     width: 100%;
     justify-content: center;
+  }
+
+  .resultHeader {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .plot {

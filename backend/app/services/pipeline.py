@@ -50,6 +50,7 @@ def export_ada_safe_dataset(upload_bytes: bytes, filename: str) -> AdaSafeExport
     return AdaSafeExportResponse(
         rows=len(anonymized),
         export_path=str(export_path),
+        download_url=_download_url(export_path),
         sensitive_fields=sensitive_fields,
         columns=list(anonymized.columns),
     )
@@ -98,11 +99,20 @@ def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
     summary_csv_path, summary_json_path = _export_model_summary("mode_a_model_summary", model_summary)
     exports["model_summary_csv"] = str(summary_csv_path)
     exports["model_summary_json"] = str(summary_json_path)
-    summary = _executive_summary(cleaned.data, scenarios, rankings, exports)
+    summary = _executive_summary(
+        cleaned.data,
+        scenarios,
+        rankings,
+        exports,
+        invalid_count=len(cleaned.invalid_records),
+        absent_count=len(cleaned.absent_records),
+        unpredictable_count=0,
+    )
     return ProcessingResponse(
         mode=request.mode,
         rows=len(cleaned.data),
         exports=exports,
+        export_downloads=_download_map(exports),
         metrics=make_json_safe(metrics),
         rankings=make_json_safe(rankings),
         plots=make_json_safe(plots),
@@ -207,11 +217,21 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
     summary_csv_path, summary_json_path = _export_model_summary("mode_b_model_summary", model_summary)
     exports["model_summary_csv"] = str(summary_csv_path)
     exports["model_summary_json"] = str(summary_json_path)
-    summary = _executive_summary(data, scenarios, rankings, exports)
+    unpredictable_count = sum(len(frame) for frame in unpredictable_rows)
+    summary = _executive_summary(
+        data,
+        scenarios,
+        rankings,
+        exports,
+        invalid_count=len(cleaned.invalid_records),
+        absent_count=len(absent_output),
+        unpredictable_count=unpredictable_count,
+    )
     return ProcessingResponse(
         mode=request.mode,
         rows=len(predictable_output),
         exports=exports,
+        export_downloads=_download_map(exports),
         metrics=make_json_safe(metrics),
         rankings=make_json_safe(rankings),
         plots=make_json_safe(plots),
@@ -337,11 +357,22 @@ def _export_records(prefix: str, frame: pd.DataFrame) -> Path:
     return path
 
 
+def _download_url(path: Path | str) -> str:
+    return f"/api/download/{Path(path).name}"
+
+
+def _download_map(exports: dict[str, str]) -> dict[str, str]:
+    return {key: _download_url(value) for key, value in exports.items()}
+
+
 def _executive_summary(
     data: pd.DataFrame,
     scenarios: list[TrainedScenario],
     rankings: list[dict[str, Any]],
     exports: dict[str, str],
+    invalid_count: int = 0,
+    absent_count: int = 0,
+    unpredictable_count: int = 0,
 ) -> dict[str, Any]:
     best = sorted(rankings, key=lambda item: (item.get("RMSE", float("inf")), item.get("MAE", float("inf"))))[0] if rankings else {}
     return {
@@ -351,6 +382,10 @@ def _executive_summary(
         "best_overall_model": best.get("model"),
         "best_rmse": best.get("RMSE"),
         "export_files_available": len(exports),
+        "clean_records": int(len(data)),
+        "invalid_records": int(invalid_count),
+        "absent_records": int(absent_count),
+        "unpredictable_records": int(unpredictable_count),
     }
 
 

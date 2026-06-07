@@ -139,6 +139,18 @@ Exports are written to `data/exports/` and include:
 
 CSV exports are intentionally ignored by git because source and generated datasets may contain confidential records.
 
+After a pipeline run, each export appears in the frontend export package with a `Download` button. Downloads are served by the backend from `/api/download/{filename}` and are restricted to files generated inside `data/exports/`.
+
+Use these downloads for report evidence:
+
+- ADA-safe anonymized dataset for submission-safe review
+- clean training records used for modelling
+- invalid records isolated from applicable-paper invalid values
+- absent records isolated from true absences
+- unpredictable records that could not be predicted
+- metrics CSV and model summary CSV/JSON
+- Mode B completed prediction file
+
 ## Troubleshooting
 
 - If CatBoost or XGBoost installation fails, install Microsoft Visual C++ Build Tools and retry.

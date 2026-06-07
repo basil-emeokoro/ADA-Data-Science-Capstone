@@ -150,6 +150,8 @@ def test_process_api_serializes_plotly_outputs() -> None:
     payload = response.json()
     assert payload["metrics"]
     assert "actual_vs_predicted" in payload["plots"]
+    assert payload["export_downloads"]["metrics"].startswith("/api/download/")
+    assert client.get(payload["export_downloads"]["metrics"]).status_code == 200
 
 
 def test_ada_safe_export_api_exports_before_cleaning() -> None:
@@ -162,9 +164,11 @@ def test_ada_safe_export_api_exports_before_cleaning() -> None:
     payload = response.json()
     assert payload["rows"] == 8
     assert payload["export_path"]
+    assert payload["download_url"].startswith("/api/download/")
     exported = pd.read_csv(payload["export_path"])
     assert "anonymized_candidate_id" in exported.columns
     assert "centre_no" not in exported.columns
+    assert client.get(payload["download_url"]).status_code == 200
 
 
 def test_mode_b_predicts_single_missing_score_and_exports() -> None:

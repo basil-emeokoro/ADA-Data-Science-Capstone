@@ -33,6 +33,7 @@ export interface ProcessingResponse {
   mode: PredictionMode;
   rows: number;
   exports: Record<string, string>;
+  export_downloads: Record<string, string>;
   metrics: Array<Record<string, string | number | null>>;
   rankings: Array<Record<string, string | number | null>>;
   plots: Record<string, any>;
@@ -44,6 +45,7 @@ export interface ProcessingResponse {
 export interface AdaSafeExportResponse {
   rows: number;
   export_path: string;
+  download_url: string;
   sensitive_fields: string[];
   columns: string[];
 }

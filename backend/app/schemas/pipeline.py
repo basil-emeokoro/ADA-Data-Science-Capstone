@@ -34,6 +34,7 @@ class ProcessingResponse(BaseModel):
     mode: PredictionMode
     rows: int
     exports: dict[str, str] = Field(default_factory=dict)
+    export_downloads: dict[str, str] = Field(default_factory=dict)
     metrics: list[dict[str, Any]] = Field(default_factory=list)
     rankings: list[dict[str, Any]] = Field(default_factory=list)
     plots: dict[str, Any] = Field(default_factory=dict)
@@ -64,5 +65,6 @@ class DetectionResponse(BaseModel):
 class AdaSafeExportResponse(BaseModel):
     rows: int
     export_path: str
+    download_url: str
     sensitive_fields: list[str]
     columns: list[str]

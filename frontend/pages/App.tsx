@@ -50,6 +50,25 @@ export function App() {
     return base;
   }, [result]);
 
+  const exportRows = useMemo(() => {
+    if (!result) return [];
+    return Object.entries(result.exports).map(([key, value]) => ({
+      key,
+      value,
+      download: result.export_downloads?.[key]
+    }));
+  }, [result]);
+
+  const qualityCounts = useMemo(() => {
+    if (!result) return { clean: 0, invalid: 0, absent: 0, unpredictable: 0 };
+    return {
+      clean: Number(result.summary.clean_records ?? result.summary.total_rows ?? result.rows),
+      invalid: Number(result.summary.invalid_records ?? 0),
+      absent: Number(result.summary.absent_records ?? 0),
+      unpredictable: Number(result.summary.unpredictable_records ?? 0)
+    };
+  }, [result]);
+
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
@@ -158,7 +177,13 @@ export function App() {
             <button onClick={onRun} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
           </div>
           {busy && <div className="progressLine"><span /> {busyLabel}</div>}
-          {adaExport && <div className="successLine"><CheckCircle2 size={16} /> ADA-safe export ready: {adaExport.export_path}</div>}
+          {adaExport && (
+            <div className="successLine">
+              <CheckCircle2 size={16} />
+              ADA-safe export ready
+              <a href={adaExport.download_url} download>Download CSV</a>
+            </div>
+          )}
           {error && <div className="alert"><AlertTriangle size={16} /> {error}</div>}
         </div>
 
@@ -227,13 +252,36 @@ export function App() {
 
       {result && (
         <>
+          <section className="resultHeader">
+            <div>
+              <span>{result.mode === "mode_a" ? "Mode A Benchmark Results" : "Mode B Lite Prediction Results"}</span>
+              <h2>{result.mode === "mode_a" ? "Experimental model comparison" : "Completed missing-score prediction"}</h2>
+            </div>
+            <strong>{Object.keys(result.exports).length} exports available</strong>
+          </section>
+
           <section className="summaryBand">
             <div><span>Total Rows</span><strong>{result.summary.total_rows ?? result.rows}</strong></div>
-            <div><span>Subjects Detected</span><strong>{result.summary.subjects_detected ?? 0}</strong></div>
-            <div><span>Scenarios Run</span><strong>{result.summary.scenarios_run ?? 0}</strong></div>
-            <div><span>Best RMSE</span><strong>{result.summary.best_rmse ?? "N/A"}</strong></div>
-            <div><span>Best Overall Model</span><strong>{result.summary.best_overall_model ?? "N/A"}</strong></div>
-            <div><span>Export Files</span><strong>{result.summary.export_files_available ?? Object.keys(result.exports).length}</strong></div>
+            <div><span>Subjects</span><strong>{result.summary.subjects_detected ?? 0}</strong></div>
+            <div><span>Scenarios</span><strong>{result.summary.scenarios_run ?? 0}</strong></div>
+            <div><span>Exports</span><strong>{result.summary.export_files_available ?? Object.keys(result.exports).length}</strong></div>
+          </section>
+
+          <section className="insightGrid">
+            <div className="panel highlightPanel">
+              <div className="panelHeader"><h2>Best Model</h2></div>
+              <strong>{result.summary.best_overall_model ?? "N/A"}</strong>
+              <span>Best RMSE: {formatNumber(result.summary.best_rmse)}</span>
+            </div>
+            <div className="panel qualityPanel">
+              <div className="panelHeader"><h2>Dataset Quality</h2></div>
+              <div className="qualityGrid">
+                <span>Clean/training<strong>{qualityCounts.clean}</strong></span>
+                <span>Invalid<strong>{qualityCounts.invalid}</strong></span>
+                <span>Absent<strong>{qualityCounts.absent}</strong></span>
+                <span>Unpredictable<strong>{qualityCounts.unpredictable}</strong></span>
+              </div>
+            </div>
           </section>
 
           {(result.errors.length > 0 || result.warnings.length > 0) && (
@@ -243,14 +291,20 @@ export function App() {
             </section>
           )}
 
-          <section className="exports">
-            {Object.entries(result.exports).map(([key, value]) => (
+          <section className="panel">
+            <div className="panelHeader">
+              <h2>{result.mode === "mode_a" ? "Mode A Export Package" : "Mode B Export Package"}</h2>
+            </div>
+            <div className="exports">
+            {exportRows.map(({ key, value, download }) => (
               <div className="exportItem" key={key}>
                 <Download size={16} />
                 <span>{key.replaceAll("_", " ")}</span>
                 <strong>{value}</strong>
+                {download && <a href={download} download>Download</a>}
               </div>
             ))}
+            </div>
           </section>
 
           <PlotPanel plots={flattenedPlots} selected={selectedPlot} onSelectedChange={setSelectedPlot} />
@@ -260,4 +314,13 @@ export function App() {
       )}
     </main>
   );
+}
+
+function formatNumber(value: string | number | null | undefined): string {
+  if (typeof value === "number") return value.toFixed(3);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(3) : value;
+  }
+  return "N/A";
 }

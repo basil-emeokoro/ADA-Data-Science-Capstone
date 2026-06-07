@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from pathlib import Path
 
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+
+from backend.app.config.settings import get_settings
 from backend.app.schemas.pipeline import AdaSafeExportResponse, DetectionResponse, ProcessingRequest, ProcessingResponse
 from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, run_pipeline
 
@@ -12,6 +16,15 @@ router = APIRouter(prefix="/api", tags=["capstone"])
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/download/{filename}")
+def download_export(filename: str) -> FileResponse:
+    export_dir = get_settings().export_dir.resolve()
+    path = (export_dir / filename).resolve()
+    if path.parent != export_dir or not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Export file not found.")
+    return FileResponse(path, filename=path.name)
 
 
 @router.post("/detect", response_model=DetectionResponse)

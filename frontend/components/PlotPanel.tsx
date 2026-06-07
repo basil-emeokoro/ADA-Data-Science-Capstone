@@ -14,7 +14,7 @@ export function PlotPanel({ plots, selected, onSelectedChange }: PlotPanelProps)
       <div className="panelHeader">
         <h2>Interactive Dashboard</h2>
         <select value={selected} onChange={(event) => onSelectedChange(event.target.value)}>
-          {keys.map((key) => <option key={key} value={key}>{key.replaceAll("_", " ")}</option>)}
+          {keys.map((key) => <option key={key} value={key}>{chartLabel(key)}</option>)}
         </select>
       </div>
       {active ? (
@@ -30,4 +30,14 @@ export function PlotPanel({ plots, selected, onSelectedChange }: PlotPanelProps)
       )}
     </section>
   );
+}
+
+function chartLabel(key: string): string {
+  return key
+    .replaceAll("_", " ")
+    .replaceAll("|", " -")
+    .replace(/\bp(\d)\b/gi, "P$1")
+    .replace(/\bshap\b/gi, "SHAP")
+    .replace(/\brmse\b/gi, "RMSE")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
