@@ -3,18 +3,30 @@ import { useEffect, useMemo, useState } from "react";
 import { MetricTable } from "../components/MetricTable";
 import { PlotPanel } from "../components/PlotPanel";
 import { useTheme } from "../hooks/useTheme";
-import { API_DISPLAY_URL, checkBackendHealth, detectDataset, DetectionResponse, MetadataEntry, PredictionMode, processDataset, ProcessingResponse } from "../services/api";
+import {
+  AdaSafeExportResponse,
+  API_DISPLAY_URL,
+  checkBackendHealth,
+  detectDataset,
+  DetectionResponse,
+  exportAdaSafeDataset,
+  MetadataEntry,
+  PredictionMode,
+  processDataset,
+  ProcessingResponse
+} from "../services/api";
 
 const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: 40, p2_max: 60, p3_max: 100, p4_max: 100 };
 const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
+const paperMaxKeys = ["p1_max", "p2_max", "p3_max", "p4_max"] as const;
 
 export function App() {
   const { theme, toggleTheme } = useTheme();
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<PredictionMode>("mode_a");
   const [detection, setDetection] = useState<DetectionResponse | null>(null);
-  const [paperCounts, setPaperCounts] = useState<MetadataEntry[]>([emptyPaperCount]);
-  const [maxScores, setMaxScores] = useState<MetadataEntry[]>([emptyMaxima]);
+  const [metadataRows, setMetadataRows] = useState<MetadataEntry[]>([{ ...emptyPaperCount, ...emptyMaxima }]);
+  const [adaExport, setAdaExport] = useState<AdaSafeExportResponse | null>(null);
   const [result, setResult] = useState<ProcessingResponse | null>(null);
   const [selectedPlot, setSelectedPlot] = useState("actual_vs_predicted");
   const [busy, setBusy] = useState(false);
@@ -24,7 +36,18 @@ export function App() {
 
   const flattenedPlots = useMemo(() => {
     if (!result?.plots) return {};
-    return { ...result.plots.eda, ...result.plots };
+    const base: Record<string, any> = { ...result.plots.eda };
+    for (const [key, value] of Object.entries(result.plots)) {
+      if (key === "eda" || key === "scenario_explainability") continue;
+      base[key] = value;
+    }
+    const scenarioPlots = result.plots.scenario_explainability ?? {};
+    for (const [scenario, charts] of Object.entries<Record<string, any>>(scenarioPlots)) {
+      for (const [chartName, chart] of Object.entries(charts)) {
+        base[`${scenario} ${chartName}`] = chart;
+      }
+    }
+    return base;
   }, [result]);
 
   useEffect(() => {
@@ -39,10 +62,17 @@ export function App() {
     try {
       const response = await detectDataset(file);
       setDetection(response);
-      if (response.inferred_paper_count) {
-        setPaperCounts([{ subject_code: "", subject_name: "", paper_count: response.inferred_paper_count }]);
-      }
-      setMaxScores([{ ...emptyMaxima, ...response.detected_max_scores }]);
+      setAdaExport(null);
+      const rows = response.subjects.length
+        ? response.subjects.map((subject) => ({
+            subject_code: subject.subject_code ?? "",
+            subject_name: subject.subject_name ?? "",
+            paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
+            ...emptyMaxima,
+            ...subject.detected_max_scores
+          }))
+        : [{ ...emptyPaperCount, ...emptyMaxima, ...response.detected_max_scores }];
+      setMetadataRows(rows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Detection failed");
     } finally {
@@ -57,7 +87,7 @@ export function App() {
     setBusyLabel(mode === "mode_a" ? "Running benchmark pipeline" : "Predicting missing scores");
     setError(null);
     try {
-      const response = await processDataset(file, mode, paperCounts, maxScores);
+      const response = await processDataset(file, mode, metadataRows, metadataRows);
       setResult(response);
       const firstPlot = Object.keys({ ...response.plots?.eda, ...response.plots })[0];
       if (firstPlot) setSelectedPlot(firstPlot);
@@ -67,6 +97,25 @@ export function App() {
       setBusy(false);
       setBusyLabel("");
     }
+  }
+
+  async function onExportAdaSafe() {
+    if (!file) return;
+    setBusy(true);
+    setBusyLabel("Exporting ADA-safe dataset");
+    setError(null);
+    try {
+      setAdaExport(await exportAdaSafeDataset(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ADA-safe export failed");
+    } finally {
+      setBusy(false);
+      setBusyLabel("");
+    }
+  }
+
+  function updateMetadataRow(index: number, patch: MetadataEntry) {
+    setMetadataRows((rows) => rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
   }
 
   return (
@@ -105,9 +154,11 @@ export function App() {
           </div>
           <div className="actions">
             <button onClick={onDetect} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Shield size={16} />} Detect</button>
+            <button onClick={onExportAdaSafe} disabled={!file || busy || !detection || mode !== "mode_a"}><Download size={16} /> Export ADA-Safe Dataset</button>
             <button onClick={onRun} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
           </div>
           {busy && <div className="progressLine"><span /> {busyLabel}</div>}
+          {adaExport && <div className="successLine"><CheckCircle2 size={16} /> ADA-safe export ready: {adaExport.export_path}</div>}
           {error && <div className="alert"><AlertTriangle size={16} /> {error}</div>}
         </div>
 
@@ -131,13 +182,27 @@ export function App() {
         <div className="panel">
           <div className="panelHeader">
             <h2>Metadata Recovery</h2>
+            <span>{metadataRows.length} subject batch{metadataRows.length === 1 ? "" : "es"}</span>
           </div>
-          <div className="gridForm">
-            <input value={paperCounts[0]?.subject_code ?? ""} placeholder="Subject code" onChange={(e) => setPaperCounts([{ ...paperCounts[0], subject_code: e.target.value }])} />
-            <input value={paperCounts[0]?.subject_name ?? ""} placeholder="Subject name" onChange={(e) => setPaperCounts([{ ...paperCounts[0], subject_name: e.target.value }])} />
-            <input type="number" min={2} max={4} value={paperCounts[0]?.paper_count ?? 3} onChange={(e) => setPaperCounts([{ ...paperCounts[0], paper_count: Number(e.target.value) }])} />
-            {["p1_max", "p2_max", "p3_max", "p4_max"].map((key) => (
-              <input key={key} type="number" placeholder={key} value={(maxScores[0] as any)?.[key] ?? ""} onChange={(e) => setMaxScores([{ ...maxScores[0], [key]: Number(e.target.value) }])} />
+          <div className="metadataTable">
+            <div className="metadataHead">
+              <span>Subject code</span>
+              <span>Subject name</span>
+              <span>Papers</span>
+              <span>P1 max</span>
+              <span>P2 max</span>
+              <span>P3 max</span>
+              <span>P4 max</span>
+            </div>
+            {metadataRows.map((row, index) => (
+              <div className="metadataRow" key={`${row.subject_code}-${row.subject_name}-${index}`}>
+                <input value={row.subject_code ?? ""} placeholder="Subject code" onChange={(event) => updateMetadataRow(index, { subject_code: event.target.value })} />
+                <input value={row.subject_name ?? ""} placeholder="Subject name" onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
+                <input type="number" min={2} max={4} value={row.paper_count ?? 3} onChange={(event) => updateMetadataRow(index, { paper_count: Number(event.target.value) })} />
+                {paperMaxKeys.map((key) => (
+                  <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: Number(event.target.value) })} />
+                ))}
+              </div>
             ))}
           </div>
         </div>
@@ -163,10 +228,12 @@ export function App() {
       {result && (
         <>
           <section className="summaryBand">
-            <div><span>Rows Processed</span><strong>{result.rows}</strong></div>
-            <div><span>Metrics</span><strong>{result.metrics.length}</strong></div>
-            <div><span>Warnings</span><strong>{result.warnings.length}</strong></div>
-            <div><span>Errors</span><strong>{result.errors.length}</strong></div>
+            <div><span>Total Rows</span><strong>{result.summary.total_rows ?? result.rows}</strong></div>
+            <div><span>Subjects Detected</span><strong>{result.summary.subjects_detected ?? 0}</strong></div>
+            <div><span>Scenarios Run</span><strong>{result.summary.scenarios_run ?? 0}</strong></div>
+            <div><span>Best RMSE</span><strong>{result.summary.best_rmse ?? "N/A"}</strong></div>
+            <div><span>Best Overall Model</span><strong>{result.summary.best_overall_model ?? "N/A"}</strong></div>
+            <div><span>Export Files</span><strong>{result.summary.export_files_available ?? Object.keys(result.exports).length}</strong></div>
           </section>
 
           {(result.errors.length > 0 || result.warnings.length > 0) && (

@@ -7,6 +7,16 @@ export interface DetectionResponse {
   inferred_paper_count: number | null;
   detected_max_scores: Record<string, number | null>;
   row_count: number;
+  subjects: SubjectDetection[];
+}
+
+export interface SubjectDetection {
+  subject_key: string;
+  subject_code: string | null;
+  subject_name: string | null;
+  inferred_paper_count: number | null;
+  row_count: number;
+  detected_max_scores: Record<string, number | null>;
 }
 
 export interface MetadataEntry {
@@ -26,8 +36,16 @@ export interface ProcessingResponse {
   metrics: Array<Record<string, string | number | null>>;
   rankings: Array<Record<string, string | number | null>>;
   plots: Record<string, any>;
+  summary: Record<string, string | number | null>;
   warnings: string[];
   errors: string[];
+}
+
+export interface AdaSafeExportResponse {
+  rows: number;
+  export_path: string;
+  sensitive_fields: string[];
+  columns: string[];
 }
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -67,6 +85,18 @@ export async function detectDataset(file: File): Promise<DetectionResponse> {
   form.append("file", file);
   try {
     const response = await fetch(apiUrl("/api/detect"), { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readError(response));
+    return response.json();
+  } catch (error) {
+    throw new Error(networkErrorMessage(error));
+  }
+}
+
+export async function exportAdaSafeDataset(file: File): Promise<AdaSafeExportResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const response = await fetch(apiUrl("/api/export/ada-safe"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
     return response.json();
   } catch (error) {

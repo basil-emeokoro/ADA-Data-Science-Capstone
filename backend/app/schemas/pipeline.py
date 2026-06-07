@@ -37,8 +37,18 @@ class ProcessingResponse(BaseModel):
     metrics: list[dict[str, Any]] = Field(default_factory=list)
     rankings: list[dict[str, Any]] = Field(default_factory=list)
     plots: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class SubjectDetection(BaseModel):
+    subject_key: str
+    subject_code: str | None = None
+    subject_name: str | None = None
+    inferred_paper_count: int | None = None
+    row_count: int
+    detected_max_scores: dict[str, float | None] = Field(default_factory=dict)
 
 
 class DetectionResponse(BaseModel):
@@ -48,3 +58,11 @@ class DetectionResponse(BaseModel):
     inferred_paper_count: int | None
     detected_max_scores: dict[str, float | None]
     row_count: int
+    subjects: list[SubjectDetection] = Field(default_factory=list)
+
+
+class AdaSafeExportResponse(BaseModel):
+    rows: int
+    export_path: str
+    sensitive_fields: list[str]
+    columns: list[str]

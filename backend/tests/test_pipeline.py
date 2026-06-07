@@ -29,6 +29,18 @@ def _rows(n: int = 18) -> list[tuple[int, int, int]]:
     return [(20 + i % 15, 31 + (i * 2) % 25, 55 + (i * 3) % 35) for i in range(n)]
 
 
+def _csv4(n: int = 18) -> bytes:
+    lines = [
+        "S/N,Subject Code,Center Number,Candidate Number,Paper 1,Paper 2,Paper 3,Paper 4",
+        ",,,,Max:40,Max:60,Max:80,Max:100",
+    ]
+    for idx in range(1, n + 1):
+        lines.append(
+            f"{idx},402004,4380102,{idx:03d},{18 + idx % 16},{29 + (idx * 2) % 26},{40 + (idx * 3) % 28},{58 + (idx * 4) % 34}"
+        )
+    return ("\n".join(lines) + "\n").encode()
+
+
 def test_parse_sample_style_csv_and_detect_maxima() -> None:
     df, maxima = parse_examination_csv(_csv(_rows(8)))
     assert list(df.columns) == ["serial_no", "subject_code", "centre_no", "candidate_number", "p1_score", "p2_score", "p3_score"]
@@ -75,10 +87,13 @@ def test_mode_a_runs_benchmark_and_exports() -> None:
     assert not response.errors
     assert response.exports["ada_safe_dataset"]
     assert response.exports["metrics"]
+    assert response.exports["model_summary_csv"]
+    assert response.exports["model_summary_json"]
     assert response.metrics
     assert response.rankings
     assert "actual_vs_predicted" in response.plots
     assert "shap" in response.plots
+    assert response.plots["scenario_explainability"]
 
 
 def test_process_api_serializes_plotly_outputs() -> None:
@@ -95,6 +110,21 @@ def test_process_api_serializes_plotly_outputs() -> None:
     assert "actual_vs_predicted" in payload["plots"]
 
 
+def test_ada_safe_export_api_exports_before_cleaning() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/api/export/ada-safe",
+        files={"file": ("sample.csv", _csv(_rows(8)), "text/csv")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rows"] == 8
+    assert payload["export_path"]
+    exported = pd.read_csv(payload["export_path"])
+    assert "anonymized_candidate_id" in exported.columns
+    assert "centre_no" not in exported.columns
+
+
 def test_mode_b_predicts_single_missing_score_and_exports() -> None:
     rows = _rows(18)
     lines = [
@@ -108,6 +138,8 @@ def test_mode_b_predicts_single_missing_score_and_exports() -> None:
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_b.csv", request)
     assert not response.errors
     assert response.exports["completed_prediction_file"]
+    assert response.exports["model_summary_csv"]
+    assert response.exports["model_summary_json"]
     exported = pd.read_csv(response.exports["completed_prediction_file"])
     assert "prediction_status" in exported.columns
     assert "predicted" in set(exported["prediction_status"])
@@ -160,3 +192,15 @@ def test_mode_a_filters_incomplete_records_before_benchmarking() -> None:
     assert not response.errors
     assert response.rows == 17
     assert any("incomplete record" in warning for warning in response.warnings)
+
+
+def test_four_paper_mode_a_generates_all_scenarios_and_exports_summary() -> None:
+    response = run_pipeline(_csv4(20), "four_paper.csv", ProcessingRequest(mode=PredictionMode.mode_a))
+    assert not response.errors
+    assert response.summary["scenarios_run"] == 4
+    assert response.exports["model_summary_csv"]
+    assert response.exports["model_summary_json"]
+    scenarios = {row["scenario"] for row in response.metrics}
+    assert {"Hide P1", "Hide P2", "Hide P3", "Hide P4"}.issubset(scenarios)
+    assert response.summary["best_overall_model"]
+    assert len(response.plots["scenario_explainability"]) == 4

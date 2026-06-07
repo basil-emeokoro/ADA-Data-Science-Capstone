@@ -269,9 +269,41 @@ select {
   padding: 8px 10px;
 }
 
+.metadataTable {
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.metadataHead,
+.metadataRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(130px, 1.1fr) 76px repeat(4, 82px);
+  gap: 8px;
+  min-width: 760px;
+  align-items: center;
+}
+
+.metadataHead {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.metadataRow input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 8px 10px;
+}
+
 .summaryBand {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin: 16px 0;
 }
@@ -325,6 +357,16 @@ select {
   margin-top: 10px;
   color: var(--danger);
   line-height: 1.4;
+}
+
+.successLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--success);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .progressLine {

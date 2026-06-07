@@ -23,6 +23,7 @@ Python 3.12 is the supported runtime because it has broad wheel compatibility ac
 ## Installation
 
 ```powershell
+cd "C:\ADA_Data_Science\Projects\Capstone Project"
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -32,18 +33,22 @@ python -m pip install -r requirements.txt
 ## Running Backend
 
 ```powershell
-uvicorn backend.app.main:app --reload
+cd "C:\ADA_Data_Science\Projects\Capstone Project"
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8002
 ```
 
-The API is available at `http://127.0.0.1:8000`.
+The API is available at `http://127.0.0.1:8002`.
 
 ## Running Frontend
 
 ```powershell
-cd frontend
-npm install
-npm run dev
+cd "C:\ADA_Data_Science\Projects\Capstone Project\frontend"
+npm.cmd install
+npm.cmd run dev -- --host 127.0.0.1 --port 5175
 ```
+
+Open the local URL printed by Vite, usually `http://127.0.0.1:5175`.
 
 The frontend calls the FastAPI backend through same-origin `/api` routes during local development.
 
@@ -51,13 +56,24 @@ For local development, the Vite dev server proxies `/api` requests to `http://12
 
 For deployment, set `VITE_API_BASE_URL` to the public backend URL.
 
+## Verification Commands
+
+Run these from the project root after activating `.venv`:
+
+```powershell
+python -m pytest backend/tests -q
+python -m pip check
+cd frontend
+npm.cmd run build
+```
+
 ## Upload Workflow
 
 1. Upload a CSV examination dataset.
 2. Review detected sensitive fields.
-3. For Mode A, anonymize before cleaning.
-4. Export the ADA-safe anonymized dataset before cleaning if needed.
-5. Recover missing metadata such as paper count or maximum scores.
+3. Click `Detect` to inspect columns, subjects, paper counts, sensitive fields, and maxima.
+4. Recover missing metadata by subject batch where needed.
+5. For Mode A, click `Export ADA-Safe Dataset` to export anonymized data before cleaning.
 6. Run Mode A benchmarking or Mode B Lite prediction.
 
 ## Mode A Usage
@@ -66,12 +82,13 @@ Mode A requires anonymization. The system:
 
 1. Detects identifiers such as candidate and centre fields.
 2. Replaces candidate identifiers with synthetic IDs such as `CAND_000001`.
-3. Exports the anonymized ADA-safe dataset before cleaning.
-4. Cleans and validates score data.
-5. Generates scenarios by hiding each available paper component.
-6. Trains Random Forest, Gradient Boosting, XGBoost, CatBoost, and SVR models.
-7. Evaluates with MAE, MSE, RMSE, R², 80/20 split, and 5-fold cross validation.
-8. Produces ranking tables and Plotly explainability visuals.
+3. Supports an explicit `Export ADA-Safe Dataset` action before cleaning.
+4. Exports the anonymized ADA-safe dataset again during Mode A processing for reproducibility.
+5. Cleans and validates score data, removing incomplete active-paper records before benchmarking.
+6. Generates 2-, 3-, and 4-paper scenarios by hiding each available paper component.
+7. Trains Random Forest, Gradient Boosting, XGBoost, CatBoost, and SVR models.
+8. Evaluates with MAE, MSE, RMSE, R2, 80/20 split, and 5-fold cross validation.
+9. Produces ranking tables, model summaries, and Plotly explainability visuals for best scenario models.
 
 ## Mode B Usage
 
@@ -83,23 +100,32 @@ Mode B Lite does not require anonymization. The system:
 4. Trains scenario models from complete rows for the same subject.
 5. Selects the correct model for each missing paper.
 6. Exports completed predictions with `prediction_status`.
+7. Exports unpredictable cases separately for reference.
 
 ## Export Process
 
 Exports are written to `data/exports/` and include:
 
-- ADA-safe anonymized datasets
-- Cleaned datasets
-- Mode A metrics and ranking tables
-- Mode B completed prediction files
+- Mode A ADA-safe anonymized CSV
+- Mode A cleaned dataset CSV
+- Mode A metrics CSV
+- Mode A model summary CSV and JSON
+- Mode B completed prediction CSV
+- Mode B unpredictable cases CSV, when applicable
+- Mode B model summary CSV and JSON
+
+CSV exports are intentionally ignored by git because source and generated datasets may contain confidential records.
 
 ## Troubleshooting
 
 - If CatBoost or XGBoost installation fails, install Microsoft Visual C++ Build Tools and retry.
 - If `py -3.12` is not found on Windows, install Python 3.12 and select "Add python.exe to PATH" during installation.
+- If the frontend cannot reach the backend, confirm Uvicorn is running on `http://127.0.0.1:8002` and restart the Vite dev server so proxy settings reload.
+- If Vite reports the requested port is in use, use the alternate URL Vite prints in the terminal.
 - If SHAP plots are slow, run on a smaller sample during development.
 - If score validation fails, check that paper scores do not exceed maximum scores.
-- If paper count cannot be inferred, provide metadata through the request payload or UI.
+- If paper count cannot be inferred from subject code, provide it by subject name in the metadata recovery panel.
+- If maximum scores are missing, provide max scores per paper in the metadata recovery panel.
 
 ## Reproducibility Notes
 

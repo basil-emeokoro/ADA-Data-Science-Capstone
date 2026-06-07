@@ -43,7 +43,7 @@ def shap_summary(model: Any, X: pd.DataFrame) -> dict[str, Any]:
     try:
         import shap
 
-        sample = X.head(min(100, len(X)))
+        sample = X.head(min(10, len(X)))
         explainer = shap.Explainer(model.predict, sample)
         values = explainer(sample)
         mean_abs = np.abs(values.values).mean(axis=0)
