@@ -92,6 +92,38 @@ def test_missing_maxima_requires_recovery() -> None:
     assert not recovered.errors
 
 
+def test_mode_a_blocks_processing_when_required_maxima_are_missing() -> None:
+    payload = "\n".join(
+        [
+            "Subject Code,Candidate Number,Paper 1,Paper 2",
+            "302002,001,20,30",
+            "302002,002,21,31",
+        ]
+    ).encode()
+    response = run_pipeline(payload, "missing_maxima_mode_a.csv", ProcessingRequest(mode=PredictionMode.mode_a))
+    assert response.errors
+    assert any("Maximum scores are missing" in error for error in response.errors)
+    assert not response.metrics
+
+
+def test_mode_b_blocks_processing_when_partial_required_maxima_are_missing() -> None:
+    payload = "\n".join(
+        [
+            "Subject Code,Candidate Number,Paper 1,Paper 2,Paper 3",
+            "718003,001,20,30,40",
+            "718003,002,21,31,missing",
+        ]
+    ).encode()
+    request = ProcessingRequest(
+        mode=PredictionMode.mode_b,
+        max_scores=[MaxScoreMetadata(subject_code="718003", p1_max=60, p2_max=60)],
+    )
+    response = run_pipeline(payload, "partial_maxima_mode_b.csv", request)
+    assert response.errors
+    assert any("p3_max" in error for error in response.errors)
+    assert "completed_prediction_file" not in response.exports
+
+
 def test_invalid_score_above_maximum_is_rejected() -> None:
     data = pd.DataFrame({"subject_code": ["302002"], "p1_score": [57], "p2_score": [30], "p1_max": [40], "p2_max": [60]})
     result = clean_dataset(data)

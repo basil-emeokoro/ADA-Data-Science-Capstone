@@ -72,7 +72,7 @@ npm.cmd run build
 1. Upload a CSV examination dataset.
 2. Review detected sensitive fields.
 3. Click `Detect` to inspect columns, subjects, paper counts, sensitive fields, and maxima.
-4. Recover missing metadata by subject batch where needed.
+4. Recover missing metadata by subject batch where needed. If paper maxima are absent from the CSV, enter the required maxima manually before running any pipeline.
 5. For Mode A, click `Export ADA-Safe Dataset` to export anonymized data before cleaning.
 6. Run Mode A benchmarking or Mode B Lite prediction.
 
@@ -85,6 +85,14 @@ Paper applicability is inferred from the final digit of `subject_code`:
 - Codes ending in `4`: P1, P2, P3, and P4 are applicable.
 
 Invalid values in non-applicable papers do not invalidate a record. For example, `-99` in P3/P4 for a 2-paper subject is ignored.
+
+Paper maximum scores are required metadata. The application never assumes a default maximum score. If maxima are missing from the uploaded CSV, processing stops until the user supplies maxima for each applicable paper:
+
+- Codes ending in `2`: provide P1 max and P2 max only.
+- Codes ending in `3`: provide P1 max, P2 max, and P3 max only.
+- Codes ending in `4`: provide P1 max, P2 max, P3 max, and P4 max.
+
+Do not provide maxima for non-applicable papers. If a user manually enters `100`, that is treated as user-supplied metadata, not a system assumption.
 
 Applicable-paper values of `-99`, `B`, `null`, or blank are isolated into `invalid_records.csv`.
 
@@ -160,7 +168,7 @@ Use these downloads for report evidence:
 - If SHAP plots are slow, run on a smaller sample during development.
 - If score validation fails, check that paper scores do not exceed maximum scores.
 - If paper count cannot be inferred from subject code, provide it by subject name in the metadata recovery panel.
-- If maximum scores are missing, provide max scores per paper in the metadata recovery panel.
+- If maximum scores are missing, provide max scores per applicable paper in the metadata recovery panel. The app does not default missing maxima to `100` or any other value.
 
 ## Reproducibility Notes
 

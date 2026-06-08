@@ -233,9 +233,13 @@ export function App() {
               <div className="metadataRow" key={`${row.subject_code}-${row.subject_name}-${index}`}>
                 <input value={row.subject_code ?? ""} placeholder="Subject code" onChange={(event) => updateMetadataRow(index, { subject_code: event.target.value })} />
                 <input value={row.subject_name ?? ""} placeholder="Subject name" onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
-                <input type="number" min={2} max={4} value={row.paper_count ?? 3} onChange={(event) => updateMetadataRow(index, { paper_count: Number(event.target.value) })} />
-                {paperMaxKeys.map((key) => (
-                  <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: event.target.value === "" ? undefined : Number(event.target.value) })} />
+                <input type="number" min={2} max={4} value={row.paper_count ?? 3} onChange={(event) => updateMetadataRow(index, normalizePaperCountPatch(Number(event.target.value)))} />
+                {paperMaxKeys.map((key, paperIndex) => (
+                  isApplicablePaper(row, paperIndex + 1) ? (
+                    <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: event.target.value === "" ? undefined : Number(event.target.value) })} />
+                  ) : (
+                    <span className="metadataInactive" key={key}>N/A</span>
+                  )
                 ))}
               </div>
             ))}
@@ -347,6 +351,18 @@ function metadataValidationMessage(rows: MetadataEntry[]): string | null {
     }
   }
   return null;
+}
+
+function normalizePaperCountPatch(paperCount: number): MetadataEntry {
+  const patch: MetadataEntry = { paper_count: paperCount };
+  for (let index = paperCount + 1; index <= 4; index += 1) {
+    patch[`p${index}_max` as keyof MetadataEntry] = undefined;
+  }
+  return patch;
+}
+
+function isApplicablePaper(row: MetadataEntry, paperIndex: number): boolean {
+  return Number(row.paper_count ?? 0) >= paperIndex;
 }
 
 function formatDetectedMaxima(maxima: Record<string, number | null> | null | undefined): string {

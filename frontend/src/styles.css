@@ -301,6 +301,18 @@ select {
   padding: 8px 10px;
 }
 
+.metadataInactive {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .summaryBand {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
