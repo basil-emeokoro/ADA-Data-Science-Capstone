@@ -144,6 +144,7 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
     model_summary: list[dict[str, Any]] = []
     clean_training_frames: list[pd.DataFrame] = []
     plots: dict[str, Any] = {"eda": eda_plots(data)}
+    single_missing_rows = 0
 
     for subject_key, subject_df in _subject_groups(data):
         paper_count = int(subject_df["paper_count"].iloc[0])
@@ -178,6 +179,7 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
                 warnings.append(str(exc))
 
         valid_missing = subject_df[missing_counts == 1]
+        single_missing_rows += len(valid_missing)
         for idx, row in valid_missing.iterrows():
             target = next(col for col in active_cols if pd.isna(row[col]))
             scenario = trained.get(target)
@@ -192,6 +194,12 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
             prediction = float(scenario.best_model.predict(prepared)[0])
             data.loc[idx, target] = prediction
             data.loc[idx, "prediction_status"] = "predicted"
+
+    if single_missing_rows == 0 and len(data) > 0:
+        warnings.append(
+            "No predictable missing scores found. Dataset contains complete valid records only. "
+            "Use Mode A Benchmark to evaluate predictive performance."
+        )
 
     absent_output = cleaned.absent_records.copy()
     if not absent_output.empty:

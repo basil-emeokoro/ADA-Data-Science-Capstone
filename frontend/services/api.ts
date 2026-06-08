@@ -88,7 +88,7 @@ export async function detectDataset(file: File): Promise<DetectionResponse> {
   try {
     const response = await fetch(apiUrl("/api/detect"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
-    return response.json();
+    return normalizeDetectionResponse(await response.json());
   } catch (error) {
     throw new Error(networkErrorMessage(error));
   }
@@ -125,8 +125,44 @@ export async function processDataset(
   try {
     const response = await fetch(apiUrl("/api/process"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
-    return response.json();
+    return normalizeProcessingResponse(await response.json());
   } catch (error) {
     throw new Error(networkErrorMessage(error));
   }
+}
+
+function normalizeDetectionResponse(payload: Partial<DetectionResponse>): DetectionResponse {
+  return {
+    filename: payload.filename ?? "",
+    columns: Array.isArray(payload.columns) ? payload.columns : [],
+    sensitive_fields: Array.isArray(payload.sensitive_fields) ? payload.sensitive_fields : [],
+    inferred_paper_count: payload.inferred_paper_count ?? null,
+    detected_max_scores: payload.detected_max_scores ?? {},
+    row_count: Number(payload.row_count ?? 0),
+    subjects: Array.isArray(payload.subjects)
+      ? payload.subjects.map((subject) => ({
+          subject_key: subject.subject_key ?? subject.subject_code ?? subject.subject_name ?? "dataset",
+          subject_code: subject.subject_code ?? null,
+          subject_name: subject.subject_name ?? null,
+          inferred_paper_count: subject.inferred_paper_count ?? null,
+          row_count: Number(subject.row_count ?? 0),
+          detected_max_scores: subject.detected_max_scores ?? {}
+        }))
+      : []
+  };
+}
+
+function normalizeProcessingResponse(payload: Partial<ProcessingResponse>): ProcessingResponse {
+  return {
+    mode: payload.mode ?? "mode_a",
+    rows: Number(payload.rows ?? 0),
+    exports: payload.exports ?? {},
+    export_downloads: payload.export_downloads ?? {},
+    metrics: Array.isArray(payload.metrics) ? payload.metrics : [],
+    rankings: Array.isArray(payload.rankings) ? payload.rankings : [],
+    plots: payload.plots ?? {},
+    summary: payload.summary ?? {},
+    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    errors: Array.isArray(payload.errors) ? payload.errors : []
+  };
 }

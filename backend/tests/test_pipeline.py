@@ -195,6 +195,14 @@ def test_mode_b_predicts_single_missing_score_and_exports() -> None:
     assert "predicted" in set(exported["prediction_status"])
 
 
+def test_mode_b_complete_records_warns_no_predictable_missing_scores() -> None:
+    response = run_pipeline(_csv(_rows(18)), "mode_b_complete.csv", ProcessingRequest(mode=PredictionMode.mode_b))
+    assert not response.errors
+    assert any("No predictable missing scores found" in warning for warning in response.warnings)
+    exported = pd.read_csv(response.exports["completed_prediction_file"])
+    assert set(exported["prediction_status"]) == {"original"}
+
+
 def test_mode_b_rejects_multiple_missing_papers_with_warning() -> None:
     rows = _rows(18)
     lines = [

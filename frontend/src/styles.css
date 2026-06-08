@@ -402,6 +402,16 @@ select {
   line-height: 1.4;
 }
 
+.noticeLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--accent-2);
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
+
 .successLine {
   display: flex;
   align-items: flex-start;
@@ -410,6 +420,23 @@ select {
   color: var(--success);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.infoPanel {
+  border-left: 4px solid var(--accent);
+}
+
+.infoPanel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.emptyState.compact {
+  min-height: 90px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .insightGrid {

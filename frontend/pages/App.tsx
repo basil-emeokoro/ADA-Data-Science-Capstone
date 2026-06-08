@@ -16,7 +16,7 @@ import {
   ProcessingResponse
 } from "../services/api";
 
-const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: 40, p2_max: 60, p3_max: 100, p4_max: 100 };
+const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: undefined, p2_max: undefined, p3_max: undefined, p4_max: undefined };
 const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
 const paperMaxKeys = ["p1_max", "p2_max", "p3_max", "p4_max"] as const;
 
@@ -36,7 +36,7 @@ export function App() {
 
   const flattenedPlots = useMemo(() => {
     if (!result?.plots) return {};
-    const base: Record<string, any> = { ...result.plots.eda };
+    const base: Record<string, any> = { ...(result.plots.eda ?? {}) };
     for (const [key, value] of Object.entries(result.plots)) {
       if (key === "eda" || key === "scenario_explainability") continue;
       base[key] = value;
@@ -52,7 +52,7 @@ export function App() {
 
   const exportRows = useMemo(() => {
     if (!result) return [];
-    return Object.entries(result.exports).map(([key, value]) => ({
+    return Object.entries(result.exports ?? {}).map(([key, value]) => ({
       key,
       value,
       download: result.export_downloads?.[key]
@@ -81,9 +81,11 @@ export function App() {
     try {
       const response = await detectDataset(file);
       setDetection(response);
+      setResult(null);
       setAdaExport(null);
-      const rows = response.subjects.length
-        ? response.subjects.map((subject) => ({
+      const subjects = response.subjects ?? [];
+      const rows = subjects.length
+        ? subjects.map((subject) => ({
             subject_code: subject.subject_code ?? "",
             subject_name: subject.subject_name ?? "",
             paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
@@ -102,13 +104,18 @@ export function App() {
 
   async function onRun() {
     if (!file) return;
+    const validationMessage = metadataValidationMessage(metadataRows);
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
     setBusy(true);
     setBusyLabel(mode === "mode_a" ? "Running benchmark pipeline" : "Predicting missing scores");
     setError(null);
     try {
       const response = await processDataset(file, mode, metadataRows, metadataRows);
       setResult(response);
-      const firstPlot = Object.keys({ ...response.plots?.eda, ...response.plots })[0];
+      const firstPlot = Object.keys({ ...(response.plots?.eda ?? {}), ...(response.plots ?? {}) })[0];
       if (firstPlot) setSelectedPlot(firstPlot);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Processing failed");
@@ -194,13 +201,13 @@ export function App() {
           </div>
           <div className="kv">
             <span>Columns</span>
-            <strong>{detection?.columns.join(", ") || "Pending"}</strong>
+            <strong>{(detection?.columns ?? []).join(", ") || "Pending"}</strong>
             <span>Sensitive fields</span>
-            <strong>{detection?.sensitive_fields.join(", ") || "Pending"}</strong>
+            <strong>{(detection?.sensitive_fields ?? []).join(", ") || "Pending"}</strong>
             <span>Inferred paper count</span>
             <strong>{detection?.inferred_paper_count ?? "Needs metadata if missing"}</strong>
             <span>Detected maxima</span>
-            <strong>{detection ? JSON.stringify(detection.detected_max_scores) : "Pending"}</strong>
+            <strong>{detection ? formatDetectedMaxima(detection.detected_max_scores) : "Pending"}</strong>
           </div>
         </div>
 
@@ -209,6 +216,9 @@ export function App() {
             <h2>Metadata Recovery</h2>
             <span>{metadataRows.length} subject batch{metadataRows.length === 1 ? "" : "es"}</span>
           </div>
+          {detection && metadataValidationMessage(metadataRows) && (
+            <div className="noticeLine"><AlertTriangle size={16} /> Maximum scores required before pipeline execution.</div>
+          )}
           <div className="metadataTable">
             <div className="metadataHead">
               <span>Subject code</span>
@@ -225,10 +235,11 @@ export function App() {
                 <input value={row.subject_name ?? ""} placeholder="Subject name" onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
                 <input type="number" min={2} max={4} value={row.paper_count ?? 3} onChange={(event) => updateMetadataRow(index, { paper_count: Number(event.target.value) })} />
                 {paperMaxKeys.map((key) => (
-                  <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: Number(event.target.value) })} />
+                  <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: event.target.value === "" ? undefined : Number(event.target.value) })} />
                 ))}
               </div>
             ))}
+            {metadataRows.length === 0 && <div className="emptyState compact">No subject metadata detected. Add subject metadata before running the pipeline.</div>}
           </div>
         </div>
       </section>
@@ -257,7 +268,7 @@ export function App() {
               <span>{result.mode === "mode_a" ? "Mode A Benchmark Results" : "Mode B Lite Prediction Results"}</span>
               <h2>{result.mode === "mode_a" ? "Experimental model comparison" : "Completed missing-score prediction"}</h2>
             </div>
-            <strong>{Object.keys(result.exports).length} exports available</strong>
+            <strong>{Object.keys(result.exports ?? {}).length} exports available</strong>
           </section>
 
           <section className="summaryBand">
@@ -284,10 +295,18 @@ export function App() {
             </div>
           </section>
 
-          {(result.errors.length > 0 || result.warnings.length > 0) && (
+          {modeBCompleteRecordMessage(result) && (
+            <section className="panel infoPanel">
+              <div className="panelHeader"><h2>Mode B Guidance</h2></div>
+              <p>No predictable missing scores found. Dataset contains complete valid records only.</p>
+              <p>Use Mode A Benchmark to evaluate predictive performance.</p>
+            </section>
+          )}
+
+          {((result.errors ?? []).length > 0 || (result.warnings ?? []).length > 0) && (
             <section className="panel">
               <div className="panelHeader"><h2>Validation Messages</h2></div>
-              {[...result.errors, ...result.warnings].map((message) => <div className="alert" key={message}><AlertTriangle size={16} /> {message}</div>)}
+              {[...(result.errors ?? []), ...(result.warnings ?? [])].map((message) => <div className="alert" key={message}><AlertTriangle size={16} /> {message}</div>)}
             </section>
           )}
 
@@ -314,6 +333,30 @@ export function App() {
       )}
     </main>
   );
+}
+
+function metadataValidationMessage(rows: MetadataEntry[]): string | null {
+  if (!rows.length) return "Maximum scores required before pipeline execution.";
+  for (const row of rows) {
+    const paperCount = Number(row.paper_count ?? 0);
+    if (![2, 3, 4].includes(paperCount)) return "Maximum scores required before pipeline execution.";
+    for (let index = 1; index <= paperCount; index += 1) {
+      const key = `p${index}_max` as keyof MetadataEntry;
+      const value = Number(row[key]);
+      if (!Number.isFinite(value) || value <= 0) return "Maximum scores required before pipeline execution.";
+    }
+  }
+  return null;
+}
+
+function formatDetectedMaxima(maxima: Record<string, number | null> | null | undefined): string {
+  if (!maxima || Object.keys(maxima).length === 0) return "Missing - use metadata recovery";
+  return JSON.stringify(maxima);
+}
+
+function modeBCompleteRecordMessage(result: ProcessingResponse | null): boolean {
+  if (!result || result.mode !== "mode_b") return false;
+  return (result.warnings ?? []).some((warning) => warning.includes("No predictable missing scores found"));
 }
 
 function formatNumber(value: string | number | null | undefined): string {
