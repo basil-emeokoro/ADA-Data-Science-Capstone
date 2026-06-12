@@ -48,6 +48,21 @@ select {
   font: inherit;
 }
 
+button,
+select,
+label.dropzone,
+a[download] {
+  cursor: pointer;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
 main {
   width: min(1440px, calc(100% - 32px));
   margin: 0 auto;
@@ -181,7 +196,8 @@ main {
 
 .segmented button,
 .actions button,
-.iconButton {
+.iconButton,
+.secondaryButton {
   border: 0;
   border-radius: 6px;
   cursor: pointer;
@@ -213,6 +229,36 @@ main {
   color: #ffffff;
   background: var(--accent);
   transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.secondaryButton:hover:not(:disabled),
+select:hover,
+.iconButton:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-2) 80%, var(--accent));
+}
+
+.secondaryButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .actions button:hover:not(:disabled) {
@@ -279,16 +325,34 @@ select {
 .metadataHead,
 .metadataRow {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(130px, 1.1fr) 76px repeat(4, 82px);
+  grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.1fr) 76px repeat(4, 92px) 92px;
   gap: 8px;
-  min-width: 760px;
+  min-width: 900px;
   align-items: center;
 }
 
 .metadataHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 0;
+  background: var(--surface);
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.metadataRow {
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.metadataRow.missing {
+  background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+
+.metadataRow.complete {
+  background: color-mix(in srgb, var(--success) 7%, transparent);
 }
 
 .metadataRow input {
@@ -301,6 +365,12 @@ select {
   padding: 8px 10px;
 }
 
+.metadataRow input[readonly] {
+  cursor: default;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-2) 75%, transparent);
+}
+
 .metadataInactive {
   min-height: 38px;
   display: grid;
@@ -311,6 +381,146 @@ select {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.metadataStatus {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.metadataStatus.pending {
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 14%, transparent);
+}
+
+.metadataStatus.complete {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.metadataSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.metadataSummary span,
+.hintText {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.hintText {
+  margin-top: 10px;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(4, 11, 24, 0.58);
+}
+
+.metadataModal {
+  width: min(1520px, 100%);
+  height: min(880px, calc(100vh - 36px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.modalHeader h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.modalHeader span {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.metadataTools {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(460px, 1.1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.searchBox input {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  outline: 0;
+}
+
+.bulkFill {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, 1fr)) minmax(220px, 1.2fr);
+  gap: 8px;
+}
+
+.bulkFill input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.metadataModal .metadataTable {
+  align-content: start;
+  overflow: auto;
+  padding: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.metadataModal .metadataHead,
+.metadataModal .metadataRow {
+  margin: 0 8px;
+}
+
+.metadataModal .metadataHead {
+  top: 0;
 }
 
 .summaryBand {

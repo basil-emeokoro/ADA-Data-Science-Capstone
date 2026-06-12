@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Moon, Play, Shield, Sun, Upload } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Maximize2, Moon, Play, Search, Shield, Sun, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { MetricTable } from "../components/MetricTable";
 import { PlotPanel } from "../components/PlotPanel";
@@ -19,6 +19,7 @@ import {
 const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: undefined, p2_max: undefined, p3_max: undefined, p4_max: undefined };
 const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
 const paperMaxKeys = ["p1_max", "p2_max", "p3_max", "p4_max"] as const;
+type MaximaPatch = Partial<Record<(typeof paperMaxKeys)[number], number>>;
 
 export function App() {
   const { theme, toggleTheme } = useTheme();
@@ -33,6 +34,9 @@ export function App() {
   const [busyLabel, setBusyLabel] = useState("");
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
+  const [metadataFilter, setMetadataFilter] = useState("");
+  const [bulkMaxima, setBulkMaxima] = useState<MetadataEntry>({});
 
   const flattenedPlots = useMemo(() => {
     if (!result?.plots) return {};
@@ -69,6 +73,22 @@ export function App() {
     };
   }, [result]);
 
+  const metadataValidation = useMemo(() => metadataValidationMessage(metadataRows), [metadataRows]);
+  const metadataStats = useMemo(() => {
+    const completed = metadataRows.filter((row) => !rowMissingRequiredMaxima(row)).length;
+    return { completed, pending: metadataRows.length - completed, total: metadataRows.length };
+  }, [metadataRows]);
+  const filteredMetadataRows = useMemo(() => {
+    const term = metadataFilter.trim().toLowerCase();
+    return metadataRows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => {
+        if (!term) return true;
+        return [row.subject_code ?? "", row.subject_name ?? "", String(row.paper_count ?? "")]
+          .some((value) => value.toLowerCase().includes(term));
+      });
+  }, [metadataRows, metadataFilter]);
+
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
@@ -86,10 +106,10 @@ export function App() {
       const subjects = response.subjects ?? [];
       const rows = subjects.length
         ? subjects.map((subject) => ({
+            ...emptyMaxima,
             subject_code: subject.subject_code ?? "",
             subject_name: subject.subject_name ?? "",
             paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
-            ...emptyMaxima,
             ...subject.detected_max_scores
           }))
         : [{ ...emptyPaperCount, ...emptyMaxima, ...response.detected_max_scores }];
@@ -104,7 +124,7 @@ export function App() {
 
   async function onRun() {
     if (!file) return;
-    const validationMessage = metadataValidationMessage(metadataRows);
+    const validationMessage = metadataValidation;
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -144,6 +164,21 @@ export function App() {
     setMetadataRows((rows) => rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
   }
 
+  function applyBulkMaxima(indexes: number[]) {
+    setMetadataRows((rows) => rows.map((row, rowIndex) => {
+      if (!indexes.includes(rowIndex)) return row;
+      const patch: MaximaPatch = {};
+      for (let paperIndex = 1; paperIndex <= Number(row.paper_count ?? 0); paperIndex += 1) {
+        const key = `p${paperIndex}_max` as (typeof paperMaxKeys)[number];
+        const value = bulkMaxima[key];
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+          patch[key] = value;
+        }
+      }
+      return { ...row, ...patch };
+    }));
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -181,7 +216,7 @@ export function App() {
           <div className="actions">
             <button onClick={onDetect} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Shield size={16} />} Detect</button>
             <button onClick={onExportAdaSafe} disabled={!file || busy || !detection || mode !== "mode_a"}><Download size={16} /> Export ADA-Safe Dataset</button>
-            <button onClick={onRun} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
+            <button onClick={onRun} disabled={!file || busy || Boolean(metadataValidation)}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
           </div>
           {busy && <div className="progressLine"><span /> {busyLabel}</div>}
           {adaExport && (
@@ -214,39 +249,46 @@ export function App() {
         <div className="panel">
           <div className="panelHeader">
             <h2>Metadata Recovery</h2>
-            <span>{metadataRows.length} subject batch{metadataRows.length === 1 ? "" : "es"}</span>
+            <span>{metadataStats.completed}/{metadataStats.total} complete</span>
           </div>
-          {detection && metadataValidationMessage(metadataRows) && (
+          {detection && metadataValidation && (
             <div className="noticeLine"><AlertTriangle size={16} /> Maximum scores required before pipeline execution.</div>
           )}
-          <div className="metadataTable">
-            <div className="metadataHead">
-              <span>Subject code</span>
-              <span>Subject name</span>
-              <span>Papers</span>
-              <span>P1 max</span>
-              <span>P2 max</span>
-              <span>P3 max</span>
-              <span>P4 max</span>
-            </div>
-            {metadataRows.map((row, index) => (
-              <div className="metadataRow" key={`${row.subject_code}-${row.subject_name}-${index}`}>
-                <input value={row.subject_code ?? ""} placeholder="Subject code" onChange={(event) => updateMetadataRow(index, { subject_code: event.target.value })} />
-                <input value={row.subject_name ?? ""} placeholder="Subject name" onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
-                <input type="number" min={2} max={4} value={row.paper_count ?? 3} onChange={(event) => updateMetadataRow(index, normalizePaperCountPatch(Number(event.target.value)))} />
-                {paperMaxKeys.map((key, paperIndex) => (
-                  isApplicablePaper(row, paperIndex + 1) ? (
-                    <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: event.target.value === "" ? undefined : Number(event.target.value) })} />
-                  ) : (
-                    <span className="metadataInactive" key={key}>N/A</span>
-                  )
-                ))}
-              </div>
-            ))}
-            {metadataRows.length === 0 && <div className="emptyState compact">No subject metadata detected. Add subject metadata before running the pipeline.</div>}
+          <div className="metadataSummary">
+            <span>Pending metadata: <strong>{metadataStats.pending}</strong></span>
+            <button className="secondaryButton" onClick={() => setMetadataEditorOpen(true)} disabled={!detection}><Maximize2 size={16} /> Open Metadata Editor</button>
           </div>
+          <MetadataEditorTable rows={metadataRows.slice(0, 5).map((row, index) => ({ row, index }))} updateMetadataRow={updateMetadataRow} compact />
+          {metadataRows.length > 5 && <div className="hintText">Showing first 5 subjects. Open the editor for search, bulk fill, and full-table scrolling.</div>}
         </div>
       </section>
+
+      {metadataEditorOpen && (
+        <section className="modalOverlay" role="dialog" aria-modal="true" aria-label="Metadata editor">
+          <div className="metadataModal">
+            <div className="modalHeader">
+              <div>
+                <h2>Metadata Editor</h2>
+                <span>{metadataStats.completed} completed, {metadataStats.pending} pending, {filteredMetadataRows.length} shown</span>
+              </div>
+              <button className="iconButton" onClick={() => setMetadataEditorOpen(false)} aria-label="Close metadata editor"><X size={18} /></button>
+            </div>
+            <div className="metadataTools">
+              <label className="searchBox">
+                <Search size={16} />
+                <input value={metadataFilter} placeholder="Filter by subject code, subject name, or paper count" onChange={(event) => setMetadataFilter(event.target.value)} />
+              </label>
+              <div className="bulkFill">
+                {paperMaxKeys.map((key) => (
+                  <input key={key} type="number" value={bulkMaxima[key] ?? ""} placeholder={key.replace("_", " ")} onChange={(event) => setBulkMaxima((current) => ({ ...current, [key]: event.target.value === "" ? undefined : Number(event.target.value) }))} />
+                ))}
+                <button className="secondaryButton" onClick={() => applyBulkMaxima(filteredMetadataRows.map(({ index }) => index))}>Apply maxima to all filtered subjects</button>
+              </div>
+            </div>
+            <MetadataEditorTable rows={filteredMetadataRows} updateMetadataRow={updateMetadataRow} />
+          </div>
+        </section>
+      )}
 
       {!result && (
         <section className="readinessBand">
@@ -339,18 +381,65 @@ export function App() {
   );
 }
 
+interface MetadataEditorTableProps {
+  rows: Array<{ row: MetadataEntry; index: number }>;
+  updateMetadataRow: (index: number, patch: MetadataEntry) => void;
+  compact?: boolean;
+}
+
+function MetadataEditorTable({ rows, updateMetadataRow, compact = false }: MetadataEditorTableProps) {
+  return (
+    <div className={`metadataTable ${compact ? "compact" : ""}`}>
+      <div className="metadataHead">
+        <span>Subject code</span>
+        <span>Subject name</span>
+        <span>Papers</span>
+        <span>P1 max</span>
+        <span>P2 max</span>
+        <span>P3 max</span>
+        <span>P4 max</span>
+        <span>Status</span>
+      </div>
+      {rows.map(({ row, index }) => {
+        const missing = rowMissingRequiredMaxima(row);
+        return (
+          <div className={`metadataRow ${missing ? "missing" : "complete"}`} key={`${row.subject_code}-${row.subject_name}-${index}`}>
+            <input value={row.subject_code ?? ""} placeholder="Subject code" readOnly={Boolean(row.subject_code)} onChange={(event) => updateMetadataRow(index, { subject_code: event.target.value })} />
+            <input value={row.subject_name ?? ""} placeholder="Subject name" readOnly={Boolean(row.subject_name)} onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
+            <input type="number" min={2} max={4} value={row.paper_count ?? 3} readOnly={paperCountInferredFromSubjectCode(row)} onChange={(event) => updateMetadataRow(index, normalizePaperCountPatch(Number(event.target.value)))} />
+            {paperMaxKeys.map((key, paperIndex) => (
+              isApplicablePaper(row, paperIndex + 1) ? (
+                <input key={key} type="number" value={row[key] ?? ""} placeholder={key} onChange={(event) => updateMetadataRow(index, { [key]: event.target.value === "" ? undefined : Number(event.target.value) })} />
+              ) : (
+                <span className="metadataInactive" key={key}>N/A</span>
+              )
+            ))}
+            <span className={`metadataStatus ${missing ? "pending" : "complete"}`}>{missing ? "Pending" : "Complete"}</span>
+          </div>
+        );
+      })}
+      {rows.length === 0 && <div className="emptyState compact">No subject metadata matches the current filter.</div>}
+    </div>
+  );
+}
+
 function metadataValidationMessage(rows: MetadataEntry[]): string | null {
   if (!rows.length) return "Maximum scores required before pipeline execution.";
-  for (const row of rows) {
-    const paperCount = Number(row.paper_count ?? 0);
-    if (![2, 3, 4].includes(paperCount)) return "Maximum scores required before pipeline execution.";
-    for (let index = 1; index <= paperCount; index += 1) {
-      const key = `p${index}_max` as keyof MetadataEntry;
-      const value = Number(row[key]);
-      if (!Number.isFinite(value) || value <= 0) return "Maximum scores required before pipeline execution.";
-    }
+  if (rows.some(rowMissingRequiredMaxima)) {
+    return "Maximum scores required before pipeline execution.";
   }
   return null;
+}
+
+function rowMissingRequiredMaxima(row: MetadataEntry): boolean {
+  const paperCount = Number(row.paper_count ?? 0);
+  if (![2, 3, 4].includes(paperCount)) return true;
+  for (let index = 1; index <= paperCount; index += 1) {
+    const key = `p${index}_max` as keyof MetadataEntry;
+    const value = Number(row[key]);
+    if (!Number.isFinite(value) || value <= 0) return true;
+  }
+  return false;
 }
 
 function normalizePaperCountPatch(paperCount: number): MetadataEntry {
@@ -363,6 +452,11 @@ function normalizePaperCountPatch(paperCount: number): MetadataEntry {
 
 function isApplicablePaper(row: MetadataEntry, paperIndex: number): boolean {
   return Number(row.paper_count ?? 0) >= paperIndex;
+}
+
+function paperCountInferredFromSubjectCode(row: MetadataEntry): boolean {
+  const code = String(row.subject_code ?? "").trim();
+  return Boolean(code && ["2", "3", "4"].includes(code.slice(-1)));
 }
 
 function formatDetectedMaxima(maxima: Record<string, number | null> | null | undefined): string {
