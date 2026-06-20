@@ -163,11 +163,20 @@ def test_mode_a_runs_benchmark_and_exports() -> None:
     assert response.exports["invalid_records"]
     assert response.exports["absent_records"]
     assert response.exports["unpredictable_records"]
+    assert "subject_mapping_private" not in response.exports
     assert response.metrics
     assert response.rankings
     assert "actual_vs_predicted" in response.plots
     assert "shap" in response.plots
     assert response.plots["scenario_explainability"]
+    public = pd.read_csv(response.exports["ada_safe_dataset"])
+    assert "subject_id" in public.columns
+    assert "subject_code" not in public.columns
+    assert "subject_name" not in public.columns
+    assert "centre_no" not in public.columns
+    assert "candidate_number" not in public.columns
+    assert {"p1_max", "p2_max", "p3_max"}.issubset(public.columns)
+    assert public["subject_id"].astype(str).str.startswith("SUBJ_").all()
 
 
 def test_process_api_serializes_plotly_outputs() -> None:
@@ -199,8 +208,31 @@ def test_ada_safe_export_api_exports_before_cleaning() -> None:
     assert payload["download_url"].startswith("/api/download/")
     exported = pd.read_csv(payload["export_path"])
     assert "anonymized_candidate_id" in exported.columns
+    assert "subject_id" in exported.columns
+    assert "subject_code" not in exported.columns
+    assert "subject_name" not in exported.columns
     assert "centre_no" not in exported.columns
+    assert "candidate_number" not in exported.columns
+    assert {"paper_count", "p1_max", "p2_max", "p3_max"}.issubset(exported.columns)
+    assert exported["subject_id"].astype(str).str.startswith("SUBJ_").all()
     assert client.get(payload["download_url"]).status_code == 200
+
+
+def test_ada_safe_export_requires_maxima() -> None:
+    client = TestClient(app)
+    payload = "\n".join(
+        [
+            "Subject Code,Candidate Number,Paper 1,Paper 2",
+            "302002,001,20,30",
+            "302002,002,21,31",
+        ]
+    ).encode()
+    response = client.post(
+        "/api/export/ada-safe",
+        files={"file": ("missing_maxima.csv", payload, "text/csv")},
+    )
+    assert response.status_code == 400
+    assert "Maximum scores are missing" in response.json()["detail"]
 
 
 def test_mode_b_predicts_single_missing_score_and_exports() -> None:

@@ -20,6 +20,7 @@ from backend.app.ml.training.trainer import TrainedScenario, train_scenario
 from backend.app.schemas.pipeline import AdaSafeExportResponse, ProcessingRequest, ProcessingResponse, PredictionMode
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
 from backend.app.services.csv_parser import parse_examination_csv
+from backend.app.services.privacy_exports import build_public_research_dataset, private_subject_mapping_path
 from backend.app.utils.files import timestamped_name
 from backend.app.utils.json import make_json_safe
 
@@ -42,17 +43,22 @@ def detect_upload(upload_bytes: bytes, filename: str) -> dict[str, Any]:
 
 
 def export_ada_safe_dataset(upload_bytes: bytes, filename: str) -> AdaSafeExportResponse:
-    raw_df, _ = parse_examination_csv(upload_bytes)
+    raw_df, detected_max = parse_examination_csv(upload_bytes)
     sensitive_fields = detect_sensitive_fields(raw_df)
     anonymized = anonymize_dataset(raw_df)
-    export_path = get_settings().export_dir / timestamped_name("mode_a_ada_safe_preclean")
-    anonymized.to_csv(export_path, index=False)
+    cleaned = clean_dataset(anonymized, detected_max_scores=detected_max, require_complete_scores=True)
+    if cleaned.errors:
+        raise ValueError("ADA-safe public export requires complete metadata and valid cleaned records: " + "; ".join(cleaned.errors))
+    settings = get_settings()
+    public_dataset, _ = build_public_research_dataset(cleaned.data, private_subject_mapping_path(settings.project_root))
+    export_path = settings.export_dir / timestamped_name("mode_a_ada_safe_public_dataset")
+    public_dataset.to_csv(export_path, index=False)
     return AdaSafeExportResponse(
-        rows=len(anonymized),
+        rows=len(public_dataset),
         export_path=str(export_path),
         download_url=_download_url(export_path),
         sensitive_fields=sensitive_fields,
-        columns=list(anonymized.columns),
+        columns=list(public_dataset.columns),
     )
 
 
@@ -66,8 +72,6 @@ def run_pipeline(upload_bytes: bytes, filename: str, request: ProcessingRequest)
 def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], request: ProcessingRequest) -> ProcessingResponse:
     settings = get_settings()
     anonymized = anonymize_dataset(raw_df)
-    anonymized_path = settings.export_dir / timestamped_name("mode_a_ada_safe_anonymized")
-    anonymized.to_csv(anonymized_path, index=False)
 
     cleaned = clean_dataset(
         anonymized,
@@ -76,9 +80,13 @@ def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
         max_scores=request.max_scores,
         require_complete_scores=True,
     )
-    exports = {"ada_safe_dataset": str(anonymized_path)}
     if cleaned.errors:
-        return ProcessingResponse(mode=request.mode, rows=len(cleaned.data), exports=exports, warnings=cleaned.warnings, errors=cleaned.errors)
+        return ProcessingResponse(mode=request.mode, rows=len(cleaned.data), warnings=cleaned.warnings, errors=cleaned.errors)
+
+    public_dataset, _ = build_public_research_dataset(cleaned.data, private_subject_mapping_path(settings.project_root))
+    public_path = settings.export_dir / timestamped_name("mode_a_ada_safe_public_dataset")
+    public_dataset.to_csv(public_path, index=False)
+    exports = {"ada_safe_dataset": str(public_path)}
 
     cleaned_path = settings.export_dir / timestamped_name("mode_a_clean_training_records")
     cleaned.data.to_csv(cleaned_path, index=False)

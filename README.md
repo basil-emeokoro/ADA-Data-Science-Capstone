@@ -56,6 +56,20 @@ For local development, the Vite dev server proxies `/api` requests to `http://12
 
 For deployment, set `VITE_API_BASE_URL` to the public backend URL.
 
+## Docker Deployment
+
+The repository includes a Dockerfile for local deployment. The image builds the React frontend, installs the Python 3.12 backend dependencies, and serves the FastAPI app on port `8000`.
+
+```powershell
+cd "C:\ADA_Data_Science\Projects\Capstone Project"
+docker build -t ada-score-prediction:latest .
+docker run --rm -p 8000:8000 ada-score-prediction:latest
+```
+
+Open `http://127.0.0.1:8000` for the frontend or `http://127.0.0.1:8000/api/health` for the API health check.
+
+The `.dockerignore` file excludes confidential inputs, `Working Documents/`, generated reports, exported CSVs, virtual environments, and frontend build folders from the Docker build context.
+
 ## Verification Commands
 
 Run these from the project root after activating `.venv`:
@@ -73,8 +87,41 @@ npm.cmd run build
 2. Review detected sensitive fields.
 3. Click `Detect` to inspect columns, subjects, paper counts, sensitive fields, and maxima.
 4. Recover missing metadata by subject batch where needed. If paper maxima are absent from the CSV, enter the required maxima manually before running any pipeline.
-5. For Mode A, click `Export ADA-Safe Dataset` to export anonymized data before cleaning.
+5. For Mode A, click `Export ADA-Safe Dataset` to export the public privacy-preserving dataset when required.
 6. Run Mode A benchmarking or Mode B Lite prediction.
+
+## Privacy Model
+
+The project separates public research artifacts from private examination metadata.
+
+Candidate identifiers are replaced with synthetic IDs such as `CAND_000001`. Candidate number, centre number, candidate ID, and other direct identifiers are removed from public outputs.
+
+Subject codes are pseudonymized in public/ADA-safe exports. Original values such as `512003` are replaced with stable public IDs such as `SUBJ_001`. The public dataset contains `subject_id`, not `subject_code`, and does not include original subject names.
+
+The private mapping file is generated at:
+
+```text
+Working Documents/subject_mapping_private.csv
+```
+
+It contains:
+
+- `original_subject_code`
+- `public_subject_id`
+- `subject_name`
+- `paper_count`
+
+`Working Documents/` is excluded by `.gitignore`, so the private mapping is not committed or included in ADA-safe downloads.
+
+Paper maxima are included in the public dataset because they are required metadata for reproducibility. Without maxima, normalized score features and score-validation decisions cannot be independently reproduced. Non-applicable paper maxima remain blank.
+
+Public ADA-safe datasets include only:
+
+- `subject_id`
+- `paper_count`
+- `anonymized_candidate_id`
+- `p1_score`, `p2_score`, `p3_score`, `p4_score`
+- `p1_max`, `p2_max`, `p3_max`, `p4_max`
 
 ## WAEC Paper Rules
 
@@ -107,13 +154,15 @@ Mode A requires anonymization. The system:
 
 1. Detects identifiers such as candidate and centre fields.
 2. Replaces candidate identifiers with synthetic IDs such as `CAND_000001`.
-3. Supports an explicit `Export ADA-Safe Dataset` action before cleaning.
-4. Exports the anonymized ADA-safe dataset again during Mode A processing for reproducibility.
-5. Cleans and validates score data, removing incomplete active-paper records before benchmarking.
-6. Generates 2-, 3-, and 4-paper scenarios by hiding each available paper component.
-7. Trains Random Forest, Gradient Boosting, XGBoost, CatBoost, and SVR models.
-8. Evaluates with MAE, MSE, RMSE, R2, 80/20 split, and 5-fold cross validation.
-9. Produces ranking tables, model summaries, and Plotly explainability visuals for best scenario models.
+3. Replaces confidential subject codes with stable public IDs such as `SUBJ_001` in ADA-safe exports.
+4. Writes the private subject-code mapping only to `Working Documents/subject_mapping_private.csv`.
+5. Supports an explicit `Export ADA-Safe Dataset` action.
+6. Exports the cleaned public ADA-safe dataset again during Mode A processing for reproducibility.
+7. Cleans and validates score data, removing incomplete active-paper records before benchmarking.
+8. Generates 2-, 3-, and 4-paper scenarios by hiding each available paper component.
+9. Trains Random Forest, Gradient Boosting, XGBoost, CatBoost, and SVR models.
+10. Evaluates with MAE, MSE, RMSE, R2, 80/20 split, and 5-fold cross validation.
+11. Produces ranking tables, model summaries, and Plotly explainability visuals for best scenario models.
 
 ## Mode B Usage
 
@@ -131,7 +180,7 @@ Mode B Lite does not require anonymization. The system:
 
 Exports are written to `data/exports/` and include:
 
-- Mode A ADA-safe anonymized CSV
+- Mode A ADA-safe public dataset CSV with candidate anonymization, subject pseudonymization, paper counts, cleaned scores, and maxima
 - Mode A clean training records CSV
 - Mode A metrics CSV
 - Mode A model summary CSV and JSON
@@ -151,13 +200,25 @@ After a pipeline run, each export appears in the frontend export package with a 
 
 Use these downloads for report evidence:
 
-- ADA-safe anonymized dataset for submission-safe review
+- ADA-safe public dataset for submission-safe review, publication, demonstrations, and screenshots
 - clean training records used for modelling
 - invalid records isolated from applicable-paper invalid values
 - absent records isolated from true absences
 - unpredictable records that could not be predicted
 - metrics CSV and model summary CSV/JSON
 - Mode B completed prediction file
+
+The private subject mapping file is not exposed through the download API and should remain only in `Working Documents/`.
+
+## Notebook
+
+The publication/demo notebook is:
+
+```text
+backend/notebooks/Exam_Score_Prediction_Demo.ipynb
+```
+
+It demonstrates dataset loading, detection, metadata recovery, privacy-preserving preprocessing, cleaning, EDA, feature engineering, Mode A benchmarking, Mode B controlled validation, model comparison, explainability, exports, and summary reporting.
 
 ## Troubleshooting
 
@@ -177,3 +238,4 @@ Use these downloads for report evidence:
 - Mode A always runs an 80/20 split and 5-fold cross validation.
 - Generated artifacts are stored under `data/` and `reports/`.
 - Tests cover anonymization, cleaning, metadata recovery, Mode A, Mode B, exports, and invalid data handling.
+- Public subject IDs are deterministic and preserved through the private mapping file in `Working Documents/`.

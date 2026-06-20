@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.routes import router
+from backend.app.config.settings import get_settings
 
 
 app = FastAPI(
@@ -19,3 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+frontend_dist = get_settings().project_root / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
