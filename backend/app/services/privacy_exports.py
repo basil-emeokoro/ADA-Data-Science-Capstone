@@ -19,7 +19,7 @@ PUBLIC_EXPORT_COLUMNS = [
     "p4_max",
 ]
 
-PRIVATE_MAPPING_COLUMNS = ["original_subject_code", "public_subject_id", "subject_name", "paper_count"]
+PRIVATE_MAPPING_COLUMNS = ["original_subject_code", "subject_id", "subject_name", "paper_count"]
 
 
 def build_public_research_dataset(
@@ -53,7 +53,7 @@ def _load_or_extend_subject_mapping(data: pd.DataFrame, mapping_path: Path) -> p
         code = subject["original_subject_code"]
         if code in known_codes:
             continue
-        subject["public_subject_id"] = f"SUBJ_{next_index:03d}"
+        subject["subject_id"] = f"SUBJ_{next_index:03d}"
         mapping_records.append(subject)
         known_codes.add(code)
         next_index += 1
@@ -67,7 +67,9 @@ def _load_or_extend_subject_mapping(data: pd.DataFrame, mapping_path: Path) -> p
 def _read_mapping(mapping_path: Path) -> pd.DataFrame:
     if not mapping_path.exists() or mapping_path.stat().st_size == 0:
         return pd.DataFrame(columns=PRIVATE_MAPPING_COLUMNS)
-    mapping = pd.read_csv(mapping_path, dtype={"original_subject_code": str, "public_subject_id": str, "subject_name": str})
+    mapping = pd.read_csv(mapping_path, dtype={"original_subject_code": str, "subject_id": str, "public_subject_id": str, "subject_name": str})
+    if "subject_id" not in mapping.columns and "public_subject_id" in mapping.columns:
+        mapping["subject_id"] = mapping["public_subject_id"]
     for column in PRIVATE_MAPPING_COLUMNS:
         if column not in mapping.columns:
             mapping[column] = pd.NA
@@ -97,7 +99,7 @@ def _subject_records(data: pd.DataFrame) -> list[dict[str, object]]:
         records.append(
             {
                 "original_subject_code": str(row["original_subject_code"]).strip(),
-                "public_subject_id": "",
+                "subject_id": "",
                 "subject_name": "" if pd.isna(row["subject_name"]) else str(row["subject_name"]).strip(),
                 "paper_count": None if pd.isna(row["paper_count"]) else int(row["paper_count"]),
             }
@@ -106,10 +108,10 @@ def _subject_records(data: pd.DataFrame) -> list[dict[str, object]]:
 
 
 def _next_subject_index(mapping: pd.DataFrame) -> int:
-    if mapping.empty or "public_subject_id" not in mapping.columns:
+    if mapping.empty or "subject_id" not in mapping.columns:
         return 1
     indexes = []
-    for value in mapping["public_subject_id"].dropna().astype(str):
+    for value in mapping["subject_id"].dropna().astype(str):
         if value.startswith("SUBJ_") and value[5:].isdigit():
             indexes.append(int(value[5:]))
     return max(indexes, default=0) + 1
@@ -122,4 +124,4 @@ def _lookup_public_subject_id(row: pd.Series, mapping: pd.DataFrame) -> str | No
     match = mapping[mapping["original_subject_code"].astype(str).str.strip() == code]
     if match.empty:
         return None
-    return str(match.iloc[0]["public_subject_id"])
+    return str(match.iloc[0]["subject_id"])

@@ -66,7 +66,9 @@ docker build -t ada-score-prediction:latest .
 docker run --rm -p 8000:8000 ada-score-prediction:latest
 ```
 
-Open `http://127.0.0.1:8000` for the frontend or `http://127.0.0.1:8000/api/health` for the API health check.
+Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/health` for the API health check.
+
+To stop a foreground Docker container, press `Ctrl+C` in the terminal where it is running. If the container was started in detached mode, list containers with `docker ps` and stop it with `docker stop <container_name_or_id>`.
 
 The `.dockerignore` file excludes confidential inputs, `Working Documents/`, generated reports, exported CSVs, virtual environments, and frontend build folders from the Docker build context.
 
@@ -107,7 +109,7 @@ Working Documents/subject_mapping_private.csv
 It contains:
 
 - `original_subject_code`
-- `public_subject_id`
+- `subject_id`
 - `subject_name`
 - `paper_count`
 
@@ -164,6 +166,8 @@ Mode A requires anonymization. The system:
 10. Evaluates with MAE, MSE, RMSE, R2, 80/20 split, and 5-fold cross validation.
 11. Produces ranking tables, model summaries, and Plotly explainability visuals for best scenario models.
 
+Mode A is the benchmark/research mode. It requires complete valid records because the system deliberately hides known paper scores and compares predictions against the real values. It is used for model comparison, research evidence, reproducibility, and report figures. It is not primarily the routine operational prediction workflow.
+
 ## Mode B Usage
 
 Mode B Lite does not require anonymization. The system:
@@ -175,6 +179,80 @@ Mode B Lite does not require anonymization. The system:
 5. Selects the correct model for each missing paper.
 6. Exports completed predictions with `prediction_status`.
 7. Exports unpredictable cases separately for reference.
+
+Mode B is the real missing-score prediction workflow. It is used when the uploaded dataset already contains genuine missing paper scores. It trains from complete valid rows in the same loaded prediction dataset for the same subject/scenario, then predicts only one missing applicable paper per candidate. It does not predict absent candidates.
+
+## Training and Validation Strategy
+
+The modelling pipeline is deterministic and reproducible:
+
+- Train/test split is used for every trained scenario.
+- The split ratio is 80 percent training and 20 percent testing for datasets with enough rows.
+- 5-fold cross-validation is also used on the training partition where possible.
+- `random_state = 42` is fixed in the backend settings.
+- Mode A trains benchmark models from the uploaded benchmark dataset after cleaning and experimental hiding.
+- Mode B trains from complete valid rows inside the loaded prediction dataset, not from a separate external training file. Rows with one genuine missing applicable paper are then predicted using the matching trained scenario model.
+
+## Codebase Map
+
+- `frontend/` - React/Vite user interface.
+- `backend/` - FastAPI backend.
+- `backend/app/services/` - upload handling, CSV parsing, privacy export, and pipeline orchestration.
+- `backend/app/ml/preprocessing/` - WAEC cleaning rules, metadata recovery support, and feature engineering.
+- `backend/app/ml/models/` - model registry and model definitions.
+- `backend/app/ml/evaluation/` - regression metrics and ranking logic.
+- `backend/app/ml/explainability/` - SHAP, feature importance, residual, actual-vs-predicted, and Plotly chart helpers.
+- `backend/notebooks/` - reproducible demo notebook.
+- `data/` - runtime data and generated exports; not the public submission source.
+- `Working Documents/` - confidential/private workspace; never public.
+- `ADA_Data_Science_Submission_Basil_Emeokoro/` - generated clean submission package when prepared locally.
+
+## Deployment Guidance
+
+### Render
+
+Use the Docker deployment path for Render:
+
+1. Push the repository to GitHub without confidential files.
+2. Create a Render Web Service.
+3. Select Docker as the environment.
+4. Use the repository root as the build context.
+5. Expose port `8000`.
+6. Health check path: `/api/health`.
+
+Equivalent local validation commands:
+
+```powershell
+docker build -t ada-score-prediction .
+docker run --rm -p 8000:8000 ada-score-prediction
+```
+
+### GitHub
+
+GitHub hosts the source code and documentation, but it does not directly run a FastAPI + React application as a live web app without deployment infrastructure. Use GitHub together with Render, a VM, Docker hosting, or Codespaces for execution.
+
+### GitHub Codespaces
+
+Codespaces can run the app for demonstration:
+
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+In another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+Forward the backend and frontend ports from the Codespaces Ports tab.
+
+### Streamlit Community Cloud
+
+This is not a Streamlit app. It uses FastAPI and React, so Streamlit Community Cloud is not the correct deployment target unless the UI is rewritten in Streamlit.
 
 ## Export Process
 
@@ -219,6 +297,22 @@ backend/notebooks/Exam_Score_Prediction_Demo.ipynb
 ```
 
 It demonstrates dataset loading, detection, metadata recovery, privacy-preserving preprocessing, cleaning, EDA, feature engineering, Mode A benchmarking, Mode B controlled validation, model comparison, explainability, exports, and summary reporting.
+
+## Submission Package
+
+For ADA/GitHub submission, use the clean generated package:
+
+```text
+ADA_Data_Science_Submission_Basil_Emeokoro/
+```
+
+This folder excludes confidential raw data, `Working Documents/`, private subject mappings, `.venv`, logs, caches, and old development exports. Its public sample dataset is:
+
+```text
+sample_data/ADA_Public_Dataset.csv
+```
+
+That dataset contains pseudonymized `subject_id` values, anonymized candidate IDs, paper counts, cleaned scores, and TASS/marks-distribution maxima for all applicable papers.
 
 ## Troubleshooting
 
