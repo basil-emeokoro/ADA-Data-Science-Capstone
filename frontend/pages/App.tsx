@@ -16,8 +16,8 @@ import {
   ProcessingResponse
 } from "../services/api";
 
-const emptyMaxima: MetadataEntry = { subject_code: "", subject_name: "", p1_max: undefined, p2_max: undefined, p3_max: undefined, p4_max: undefined };
-const emptyPaperCount: MetadataEntry = { subject_code: "", subject_name: "", paper_count: 3 };
+const emptyMaxima: MetadataEntry = { subject_id: "", subject_code: "", subject_name: "", p1_max: undefined, p2_max: undefined, p3_max: undefined, p4_max: undefined };
+const emptyPaperCount: MetadataEntry = { subject_id: "", subject_code: "", subject_name: "", paper_count: 3 };
 const paperMaxKeys = ["p1_max", "p2_max", "p3_max", "p4_max"] as const;
 type MaximaPatch = Partial<Record<(typeof paperMaxKeys)[number], number>>;
 
@@ -84,7 +84,7 @@ export function App() {
       .map((row, index) => ({ row, index }))
       .filter(({ row }) => {
         if (!term) return true;
-        return [row.subject_code ?? "", row.subject_name ?? "", String(row.paper_count ?? "")]
+        return [row.subject_id ?? "", row.subject_code ?? "", row.subject_name ?? "", String(row.paper_count ?? "")]
           .some((value) => value.toLowerCase().includes(term));
       });
   }, [metadataRows, metadataFilter]);
@@ -107,6 +107,7 @@ export function App() {
       const rows = subjects.length
         ? subjects.map((subject) => ({
             ...emptyMaxima,
+            subject_id: subject.subject_id ?? "",
             subject_code: subject.subject_code ?? "",
             subject_name: subject.subject_name ?? "",
             paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
@@ -238,11 +239,11 @@ export function App() {
             <span>Columns</span>
             <strong>{(detection?.columns ?? []).join(", ") || "Pending"}</strong>
             <span>Sensitive fields</span>
-            <strong>{(detection?.sensitive_fields ?? []).join(", ") || "Pending"}</strong>
+            <strong>{detection ? ((detection.sensitive_fields ?? []).join(", ") || "None detected") : "Pending"}</strong>
             <span>Inferred paper count</span>
-            <strong>{detection?.inferred_paper_count ?? "Needs metadata if missing"}</strong>
+            <strong>{detection?.inferred_paper_count ?? (detection && metadataStats.pending === 0 ? "Detected per subject" : "Needs metadata if missing")}</strong>
             <span>Detected maxima</span>
-            <strong>{detection ? formatDetectedMaxima(detection.detected_max_scores) : "Pending"}</strong>
+            <strong>{detection ? formatDetectedMaxima(detection.detected_max_scores, metadataStats.pending === 0) : "Pending"}</strong>
           </div>
         </div>
 
@@ -391,7 +392,7 @@ function MetadataEditorTable({ rows, updateMetadataRow, compact = false }: Metad
   return (
     <div className={`metadataTable ${compact ? "compact" : ""}`}>
       <div className="metadataHead">
-        <span>Subject code</span>
+        <span>Subject ID / code</span>
         <span>Subject name</span>
         <span>Papers</span>
         <span>P1 max</span>
@@ -403,8 +404,13 @@ function MetadataEditorTable({ rows, updateMetadataRow, compact = false }: Metad
       {rows.map(({ row, index }) => {
         const missing = rowMissingRequiredMaxima(row);
         return (
-          <div className={`metadataRow ${missing ? "missing" : "complete"}`} key={`${row.subject_code}-${row.subject_name}-${index}`}>
-            <input value={row.subject_code ?? ""} placeholder="Subject code" readOnly={Boolean(row.subject_code)} onChange={(event) => updateMetadataRow(index, { subject_code: event.target.value })} />
+          <div className={`metadataRow ${missing ? "missing" : "complete"}`} key={`${row.subject_id}-${row.subject_code}-${row.subject_name}-${index}`}>
+            <input
+              value={row.subject_id || row.subject_code || ""}
+              placeholder="Subject ID or code"
+              readOnly={Boolean(row.subject_id || row.subject_code)}
+              onChange={(event) => updateMetadataRow(index, row.subject_id ? { subject_id: event.target.value } : { subject_code: event.target.value })}
+            />
             <input value={row.subject_name ?? ""} placeholder="Subject name" readOnly={Boolean(row.subject_name)} onChange={(event) => updateMetadataRow(index, { subject_name: event.target.value })} />
             <input type="number" min={2} max={4} value={row.paper_count ?? 3} readOnly={paperCountInferredFromSubjectCode(row)} onChange={(event) => updateMetadataRow(index, normalizePaperCountPatch(Number(event.target.value)))} />
             {paperMaxKeys.map((key, paperIndex) => (
@@ -455,11 +461,13 @@ function isApplicablePaper(row: MetadataEntry, paperIndex: number): boolean {
 }
 
 function paperCountInferredFromSubjectCode(row: MetadataEntry): boolean {
+  if (row.subject_id) return true;
   const code = String(row.subject_code ?? "").trim();
   return Boolean(code && ["2", "3", "4"].includes(code.slice(-1)));
 }
 
-function formatDetectedMaxima(maxima: Record<string, number | null> | null | undefined): string {
+function formatDetectedMaxima(maxima: Record<string, number | null> | null | undefined, completeBySubject = false): string {
+  if ((!maxima || Object.keys(maxima).length === 0) && completeBySubject) return "Detected per subject";
   if (!maxima || Object.keys(maxima).length === 0) return "Missing - use metadata recovery";
   return JSON.stringify(maxima);
 }

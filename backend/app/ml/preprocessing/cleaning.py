@@ -8,9 +8,9 @@ import pandas as pd
 from backend.app.schemas.pipeline import MaxScoreMetadata, PaperCountMetadata
 
 
-INVALID_MARKERS = {"", "-99", "b", "null"}
+INVALID_MARKERS = {"-99", "b", "null"}
 ABSENT_MARKERS = {"a", "ab", "abs"}
-PREDICTABLE_MISSING_MARKERS = {"missing", "nan", "none"}
+PREDICTABLE_MISSING_MARKERS = {"", "missing", "nan", "none"}
 METADATA_MISSING_MARKERS = INVALID_MARKERS | ABSENT_MARKERS | PREDICTABLE_MISSING_MARKERS
 PAPER_SCORE_COLUMNS = ["p1_score", "p2_score", "p3_score", "p4_score"]
 PAPER_MAX_COLUMNS = ["p1_max", "p2_max", "p3_max", "p4_max"]
@@ -38,11 +38,14 @@ def clean_dataset(
     errors: list[str] = []
     data = df.copy()
     data = data.drop_duplicates()
+    uploaded_score_columns = set(data.columns) & set(PAPER_SCORE_COLUMNS)
 
     if "anonymized_candidate_id" not in data.columns:
         data["anonymized_candidate_id"] = [f"CAND_{idx:06d}" for idx in range(1, len(data) + 1)]
     if "subject_code" not in data.columns:
         data["subject_code"] = None
+    if "subject_id" not in data.columns:
+        data["subject_id"] = None
     if "subject_name" not in data.columns:
         data["subject_name"] = "Unknown Subject"
 
@@ -60,6 +63,19 @@ def clean_dataset(
         errors.append("Paper count could not be inferred for one or more subjects. Provide metadata recovery input.")
         return CleaningResult(data=data, warnings=warnings, errors=errors)
     data["paper_count"] = data["paper_count"].astype(int)
+
+    missing_paper_columns = [
+        f"p{paper_idx}_score"
+        for paper_idx in range(1, 5)
+        if f"p{paper_idx}_score" not in uploaded_score_columns and (data["paper_count"] >= paper_idx).any()
+    ]
+    if missing_paper_columns:
+        errors.append(
+            "Missing paper column detected. Keep all applicable paper columns in the file and mark missing candidate "
+            "scores as blank/missing. The system needs complete rows to train prediction models. "
+            f"Missing columns: {', '.join(missing_paper_columns)}."
+        )
+        return CleaningResult(data=data, warnings=warnings, errors=errors)
 
     classification = _classify_score_records(data, raw_score_columns)
     invalid_records = classification["invalid_records"]
@@ -137,13 +153,19 @@ def _to_numeric_score(series: pd.Series) -> pd.Series:
 
 
 def _resolve_paper_count(row: pd.Series, metadata: list[PaperCountMetadata]) -> int | None:
+    supplied_count = pd.to_numeric(pd.Series([row.get("paper_count")]), errors="coerce").iloc[0]
+    if pd.notna(supplied_count) and int(supplied_count) in {2, 3, 4}:
+        return int(supplied_count)
     code = None if pd.isna(row.get("subject_code")) else str(row.get("subject_code")).strip()
     if code and code.lower() not in METADATA_MISSING_MARKERS:
         last_digit = code[-1]
         if last_digit in {"2", "3", "4"}:
             return int(last_digit)
     subject_name = str(row.get("subject_name", "")).strip().lower()
+    subject_id = str(row.get("subject_id", "")).strip()
     for item in metadata:
+        if item.subject_id and subject_id and item.subject_id.strip() == subject_id:
+            return item.paper_count
         if item.subject_code and code and str(item.subject_code).strip() == code:
             return item.paper_count
         if item.subject_name and item.subject_name.strip().lower() == subject_name:
@@ -209,6 +231,8 @@ def _apply_max_scores(
             data[column] = data[column].fillna(float(value))
     for item in metadata:
         mask = pd.Series(True, index=data.index)
+        if item.subject_id:
+            mask &= data["subject_id"].astype(str).str.strip() == item.subject_id.strip()
         if item.subject_code:
             mask &= data["subject_code"].astype(str).str.strip() == str(item.subject_code).strip()
         if item.subject_name:
@@ -269,6 +293,7 @@ def _outlier_warnings(data: pd.DataFrame) -> list[str]:
 def _canonical_order(data: pd.DataFrame) -> pd.DataFrame:
     first = [
         "anonymized_candidate_id",
+        "subject_id",
         "subject_code",
         "subject_name",
         "paper_count",

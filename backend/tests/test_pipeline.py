@@ -11,17 +11,17 @@ from backend.app.ml.preprocessing.cleaning import clean_dataset
 from backend.app.schemas.pipeline import MaxScoreMetadata, PaperCountMetadata, ProcessingRequest, PredictionMode
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
 from backend.app.services.csv_parser import parse_examination_csv
-from backend.app.services.pipeline import run_pipeline
+from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, run_pipeline
 
 
-def _csv(rows: list[tuple[int, int, int]], subject_code: str = "718003") -> bytes:
+def _csv(rows: list[tuple[int, int, int]], subject_code: str = "TEST_SUBJECT_3") -> bytes:
     lines = [
         ",,,,,,",
         "S/N,Subject Code,Center Number,Candidate Number,Paper 1,Paper 2,Paper 3",
         ",,,,Max:40,Max:60,Max:100",
     ]
     for idx, (p1, p2, p3) in enumerate(rows, start=1):
-        lines.append(f"{idx},{subject_code},4380102,{idx:03d},{p1},{p2},{p3}")
+        lines.append(f"{idx},{subject_code},TEST_CENTRE,{idx:03d},{p1},{p2},{p3}")
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -36,8 +36,18 @@ def _csv4(n: int = 18) -> bytes:
     ]
     for idx in range(1, n + 1):
         lines.append(
-            f"{idx},402004,4380102,{idx:03d},{18 + idx % 16},{29 + (idx * 2) % 26},{40 + (idx * 3) % 28},{58 + (idx * 4) % 34}"
+            f"{idx},TEST_SUBJECT_4,TEST_CENTRE,{idx:03d},{18 + idx % 16},{29 + (idx * 2) % 26},{40 + (idx * 3) % 28},{58 + (idx * 4) % 34}"
         )
+    return ("\n".join(lines) + "\n").encode()
+
+
+def _public_csv(n: int = 12, missing_target: bool = False) -> bytes:
+    lines = [
+        "subject_id,paper_count,anonymized_candidate_id,p1_score,p2_score,p3_score,p4_score,p1_max,p2_max,p3_max,p4_max"
+    ]
+    for idx in range(1, n + 1):
+        p3 = "missing" if missing_target else 55 + (idx * 3) % 35
+        lines.append(f"SUBJ_001,3,CAND_{idx:06d},{20 + idx % 15},{31 + (idx * 2) % 25},{p3},,40,60,100,")
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -52,13 +62,13 @@ def test_parse_waec_sample_headers_and_ignore_non_applicable_minus_99() -> None:
     payload = "\n".join(
         [
             "SUBJCODE,CANDIDATE NO,PAPER 1,PAPER 2,PAPER 3,PAPER 4",
-            "103002,4051079107,15,12,-99,-99",
-            "103002,4250367020,45,93,-99,-99",
+                "TEST_SUBJECT_A2,RAW_CAND_A,15,12,-99,-99",
+                "TEST_SUBJECT_A2,RAW_CAND_B,45,93,-99,-99",
         ]
     ).encode()
     df, maxima = parse_examination_csv(payload)
     assert list(df.columns) == ["subject_code", "candidate_number", "p1_score", "p2_score", "p3_score", "p4_score"]
-    result = clean_dataset(df, max_scores=[MaxScoreMetadata(subject_code="103002", p1_max=100, p2_max=100)])
+    result = clean_dataset(df, max_scores=[MaxScoreMetadata(subject_code="TEST_SUBJECT_A2", p1_max=100, p2_max=100)])
     assert not result.errors
     assert len(result.data) == 2
     assert result.invalid_records.empty
@@ -75,6 +85,21 @@ def test_anonymization_replaces_candidate_identifiers() -> None:
     assert anonymized["anonymized_candidate_id"].iloc[0] == "CAND_000001"
 
 
+def test_public_schema_detection_and_export_preserve_public_ids() -> None:
+    detection = detect_upload(_public_csv(), "ADA_Public_Dataset.csv")
+    assert detection["row_count"] == 12
+    assert detection["sensitive_fields"] == []
+    assert detection["inferred_paper_count"] == 3
+    assert detection["subjects"][0]["subject_id"] == "SUBJ_001"
+    assert detection["subjects"][0]["detected_max_scores"] == {"p1_max": 40.0, "p2_max": 60.0, "p3_max": 100.0}
+
+    response = export_ada_safe_dataset(_public_csv(), "ADA_Public_Dataset.csv")
+    exported = pd.read_csv(response.export_path)
+    assert set(exported["subject_id"]) == {"SUBJ_001"}
+    assert set(exported["anonymized_candidate_id"]) == {f"CAND_{idx:06d}" for idx in range(1, 13)}
+    assert "subject_code" not in exported.columns
+
+
 def test_missing_metadata_requires_paper_count() -> None:
     data = pd.DataFrame({"subject_name": ["Biology"], "p1_score": [20], "p2_score": [30], "p1_max": [40], "p2_max": [60]})
     result = clean_dataset(data)
@@ -85,10 +110,10 @@ def test_missing_metadata_requires_paper_count() -> None:
 
 
 def test_missing_maxima_requires_recovery() -> None:
-    data = pd.DataFrame({"subject_code": ["302002"], "p1_score": [20], "p2_score": [30]})
+    data = pd.DataFrame({"subject_code": ["TEST_SUBJECT_B2"], "p1_score": [20], "p2_score": [30]})
     result = clean_dataset(data)
     assert result.errors
-    recovered = clean_dataset(data, max_scores=[MaxScoreMetadata(subject_code="302002", p1_max=40, p2_max=60)])
+    recovered = clean_dataset(data, max_scores=[MaxScoreMetadata(subject_code="TEST_SUBJECT_B2", p1_max=40, p2_max=60)])
     assert not recovered.errors
 
 
@@ -96,8 +121,8 @@ def test_mode_a_blocks_processing_when_required_maxima_are_missing() -> None:
     payload = "\n".join(
         [
             "Subject Code,Candidate Number,Paper 1,Paper 2",
-            "302002,001,20,30",
-            "302002,002,21,31",
+            "TEST_SUBJECT_B2,001,20,30",
+            "TEST_SUBJECT_B2,002,21,31",
         ]
     ).encode()
     response = run_pipeline(payload, "missing_maxima_mode_a.csv", ProcessingRequest(mode=PredictionMode.mode_a))
@@ -110,13 +135,13 @@ def test_mode_b_blocks_processing_when_partial_required_maxima_are_missing() -> 
     payload = "\n".join(
         [
             "Subject Code,Candidate Number,Paper 1,Paper 2,Paper 3",
-            "718003,001,20,30,40",
-            "718003,002,21,31,missing",
+            "TEST_SUBJECT_3,001,20,30,40",
+            "TEST_SUBJECT_3,002,21,31,missing",
         ]
     ).encode()
     request = ProcessingRequest(
         mode=PredictionMode.mode_b,
-        max_scores=[MaxScoreMetadata(subject_code="718003", p1_max=60, p2_max=60)],
+        max_scores=[MaxScoreMetadata(subject_code="TEST_SUBJECT_3", p1_max=60, p2_max=60)],
     )
     response = run_pipeline(payload, "partial_maxima_mode_b.csv", request)
     assert response.errors
@@ -125,7 +150,7 @@ def test_mode_b_blocks_processing_when_partial_required_maxima_are_missing() -> 
 
 
 def test_invalid_score_above_maximum_is_rejected() -> None:
-    data = pd.DataFrame({"subject_code": ["302002"], "p1_score": [57], "p2_score": [30], "p1_max": [40], "p2_max": [60]})
+    data = pd.DataFrame({"subject_code": ["TEST_SUBJECT_B2"], "p1_score": [57], "p2_score": [30], "p1_max": [40], "p2_max": [60]})
     result = clean_dataset(data)
     assert not result.errors
     assert len(result.data) == 0
@@ -136,7 +161,7 @@ def test_invalid_score_above_maximum_is_rejected() -> None:
 def test_applicable_invalid_and_absent_records_are_isolated() -> None:
     data = pd.DataFrame(
         {
-            "subject_code": ["718003", "718003", "718003", "718003"],
+            "subject_code": ["TEST_SUBJECT_3"] * 4,
             "candidate_number": ["001", "002", "003", "004"],
             "p1_score": ["20", "B", "A", "25"],
             "p2_score": ["30", "35", "33", "missing"],
@@ -144,7 +169,7 @@ def test_applicable_invalid_and_absent_records_are_isolated() -> None:
             "p4_score": ["-99", "-99", "-99", "B"],
         }
     )
-    result = clean_dataset(data, max_scores=[MaxScoreMetadata(subject_code="718003", p1_max=60, p2_max=60, p3_max=60)])
+    result = clean_dataset(data, max_scores=[MaxScoreMetadata(subject_code="TEST_SUBJECT_3", p1_max=60, p2_max=60, p3_max=60)])
     assert not result.errors
     assert len(result.data) == 2
     assert len(result.invalid_records) == 1
@@ -223,8 +248,8 @@ def test_ada_safe_export_requires_maxima() -> None:
     payload = "\n".join(
         [
             "Subject Code,Candidate Number,Paper 1,Paper 2",
-            "302002,001,20,30",
-            "302002,002,21,31",
+            "TEST_SUBJECT_B2,001,20,30",
+            "TEST_SUBJECT_B2,002,21,31",
         ]
     ).encode()
     response = client.post(
@@ -243,7 +268,7 @@ def test_mode_b_predicts_single_missing_score_and_exports() -> None:
     ]
     for idx, (p1, p2, p3) in enumerate(rows, start=1):
         p3_value = "missing" if idx == 18 else p3
-        lines.append(f"{idx},718003,4380102,{idx:03d},{p1},{p2},{p3_value}")
+        lines.append(f"{idx},TEST_SUBJECT_3,TEST_CENTRE,{idx:03d},{p1},{p2},{p3_value}")
     request = ProcessingRequest(mode=PredictionMode.mode_b)
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_b.csv", request)
     assert not response.errors
@@ -276,13 +301,34 @@ def test_mode_b_rejects_multiple_missing_papers_with_warning() -> None:
     for idx, (p1, p2, p3) in enumerate(rows, start=1):
         p1_value = "missing" if idx == 18 else p1
         p2_value = "missing" if idx == 18 else p2
-        lines.append(f"{idx},718003,4380102,{idx:03d},{p1_value},{p2_value},{p3}")
+        lines.append(f"{idx},TEST_SUBJECT_3,TEST_CENTRE,{idx:03d},{p1_value},{p2_value},{p3}")
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "invalid_mode_b.csv", ProcessingRequest(mode=PredictionMode.mode_b))
     assert any("multiple missing papers" in warning for warning in response.warnings)
     assert "unpredictable_reference_file" in response.exports
     reference = pd.read_csv(response.exports["unpredictable_reference_file"])
     assert "unpredictable_reason" in reference.columns
     assert "multiple missing paper scores" in set(reference["unpredictable_reason"])
+
+
+def test_mode_b_rejects_deleted_applicable_paper_column() -> None:
+    payload = "\n".join(
+        [
+            "subject_id,paper_count,anonymized_candidate_id,p1_score,p2_score,p1_max,p2_max,p3_max",
+            "SUBJ_001,3,CAND_000001,20,30,40,60,100",
+            "SUBJ_001,3,CAND_000002,21,31,40,60,100",
+        ]
+    ).encode()
+    response = run_pipeline(payload, "deleted_p3.csv", ProcessingRequest(mode=PredictionMode.mode_b))
+    assert response.errors
+    assert "Missing paper column detected" in response.errors[0]
+    assert "mark missing candidate scores as blank/missing" in response.errors[0]
+
+
+def test_mode_b_reports_no_complete_rows_for_entirely_missing_target() -> None:
+    response = run_pipeline(_public_csv(missing_target=True), "all_p3_missing.csv", ProcessingRequest(mode=PredictionMode.mode_b))
+    assert not response.errors
+    assert any("No complete training rows available for this target paper" in warning for warning in response.warnings)
+    assert response.summary["unpredictable_records"] == 12
 
 
 def test_mode_b_marks_absent_records_without_prediction() -> None:
@@ -293,7 +339,7 @@ def test_mode_b_marks_absent_records_without_prediction() -> None:
     ]
     for idx, (p1, p2, p3) in enumerate(rows, start=1):
         p3_value = "ABS" if idx == 18 else p3
-        lines.append(f"{idx},718003,4380102,{idx:03d},{p1},{p2},{p3_value}")
+        lines.append(f"{idx},TEST_SUBJECT_3,TEST_CENTRE,{idx:03d},{p1},{p2},{p3_value}")
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_b_absent.csv", ProcessingRequest(mode=PredictionMode.mode_b))
     assert not response.errors
     absent = pd.read_csv(response.exports["absent_records"])
@@ -302,8 +348,8 @@ def test_mode_b_marks_absent_records_without_prediction() -> None:
 
 
 def test_multi_subject_mode_a() -> None:
-    first = [f"{idx},718003,4380102,{idx:03d},{20 + idx % 10},{35 + idx % 12},{60 + idx % 20}" for idx in range(1, 13)]
-    second = [f"{idx + 20},302002,4380103,{idx:03d},{18 + idx % 10},{31 + idx % 15}," for idx in range(1, 13)]
+    first = [f"{idx},TEST_SUBJECT_3,TEST_CENTRE_A,{idx:03d},{20 + idx % 10},{35 + idx % 12},{60 + idx % 20}" for idx in range(1, 13)]
+    second = [f"{idx + 20},TEST_SUBJECT_B2,TEST_CENTRE_B,{idx:03d},{18 + idx % 10},{31 + idx % 15}," for idx in range(1, 13)]
     payload = "\n".join(
         [
             "S/N,Subject Code,Center Number,Candidate Number,Paper 1,Paper 2,Paper 3",
@@ -314,7 +360,7 @@ def test_multi_subject_mode_a() -> None:
     )
     response = run_pipeline(payload.encode(), "multi.csv", ProcessingRequest(mode=PredictionMode.mode_a))
     assert not response.errors
-    assert {"718003", "302002"}.issubset({row["subject"] for row in response.metrics})
+    assert {"TEST_SUBJECT_3", "TEST_SUBJECT_B2"}.issubset({row["subject"] for row in response.metrics})
 
 
 def test_mode_a_filters_incomplete_records_before_benchmarking() -> None:
@@ -325,7 +371,7 @@ def test_mode_a_filters_incomplete_records_before_benchmarking() -> None:
     ]
     for idx, (p1, p2, p3) in enumerate(rows, start=1):
         p2_value = "missing" if idx == 18 else p2
-        lines.append(f"{idx},718003,4380102,{idx:03d},{p1},{p2_value},{p3}")
+        lines.append(f"{idx},TEST_SUBJECT_3,TEST_CENTRE,{idx:03d},{p1},{p2_value},{p3}")
     response = run_pipeline(("\n".join(lines) + "\n").encode(), "mode_a_incomplete.csv", ProcessingRequest(mode=PredictionMode.mode_a))
     assert not response.errors
     assert response.rows == 17

@@ -98,7 +98,7 @@ The project separates public research artifacts from private examination metadat
 
 Candidate identifiers are replaced with synthetic IDs such as `CAND_000001`. Candidate number, centre number, candidate ID, and other direct identifiers are removed from public outputs.
 
-Subject codes are pseudonymized in public/ADA-safe exports. Original values such as `512003` are replaced with stable public IDs such as `SUBJ_001`. The public dataset contains `subject_id`, not `subject_code`, and does not include original subject names.
+Subject codes are pseudonymized in public/ADA-safe exports. Confidential source codes are replaced with stable public IDs such as `SUBJ_001`. The public dataset contains `subject_id`, not `subject_code`, and does not include original subject names.
 
 The private mapping file is generated at:
 
@@ -181,6 +181,17 @@ Mode B Lite does not require anonymization. The system:
 7. Exports unpredictable cases separately for reference.
 
 Mode B is the real missing-score prediction workflow. It is used when the uploaded dataset already contains genuine missing paper scores. It trains from complete valid rows in the same loaded prediction dataset for the same subject/scenario, then predicts only one missing applicable paper per candidate. It does not predict absent candidates.
+
+Mode B input rules:
+
+- Keep every applicable paper column in the CSV, even when some candidates have missing scores.
+- Mark candidate-level missing values in cells as blank or `missing`; do not delete the entire paper column.
+- Only one applicable paper may be missing per candidate.
+- The uploaded file must include complete valid rows for the same subject so Mode B can train the matching target-paper model.
+- If an applicable paper column is deleted, the system stops with a missing-column validation message.
+- If every row is missing the same target paper, the system cannot train that target from the file and exports those cases as unpredictable.
+
+Public ADA-safe datasets are accepted directly using `subject_id`, `paper_count`, `anonymized_candidate_id`, score columns, and maxima columns. Raw subject codes are not required.
 
 ## Training and Validation Strategy
 

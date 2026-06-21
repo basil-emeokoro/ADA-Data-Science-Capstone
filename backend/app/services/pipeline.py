@@ -28,17 +28,23 @@ from backend.app.utils.json import make_json_safe
 def detect_upload(upload_bytes: bytes, filename: str) -> dict[str, Any]:
     df, detected_max = parse_examination_csv(upload_bytes)
     inferred = None
-    if "subject_code" in df.columns and not df["subject_code"].dropna().empty:
+    if "paper_count" in df.columns:
+        counts = pd.to_numeric(df["paper_count"], errors="coerce").dropna().astype(int).unique()
+        if len(counts) == 1 and int(counts[0]) in {2, 3, 4}:
+            inferred = int(counts[0])
+    if inferred is None and "subject_code" in df.columns and not df["subject_code"].dropna().empty:
         code = str(df["subject_code"].dropna().iloc[0]).strip()
         inferred = int(code[-1]) if code[-1:] in {"2", "3", "4"} else None
+    subjects = _detect_subjects(df, detected_max)
+    display_maxima = detected_max if len(subjects) <= 1 else {}
     return {
         "filename": filename,
         "columns": list(df.columns),
         "sensitive_fields": detect_sensitive_fields(df),
         "inferred_paper_count": inferred,
-        "detected_max_scores": detected_max,
+        "detected_max_scores": display_maxima,
         "row_count": len(df),
-        "subjects": _detect_subjects(df, detected_max),
+        "subjects": subjects,
     }
 
 
@@ -170,7 +176,22 @@ def _run_mode_b(raw_df: pd.DataFrame, detected_max: dict[str, float | None], req
         if not complete_rows.empty:
             clean_training_frames.append(complete_rows)
         if len(complete_rows) < 6:
-            warnings.append(f"Not enough complete rows to train Mode B models for {subject_key}.")
+            entirely_missing_targets = [column for column in active_cols if subject_df[column].isna().all()]
+            untrained_missing = subject_df[missing_counts == 1].copy()
+            if not untrained_missing.empty:
+                single_missing_rows += len(untrained_missing)
+                data.loc[untrained_missing.index, "prediction_status"] = "unpredictable"
+                untrained_missing["prediction_status"] = "unpredictable"
+                untrained_missing["unpredictable_reason"] = "no complete training rows available for target paper"
+                unpredictable_rows.append(untrained_missing)
+            if entirely_missing_targets:
+                warnings.append(
+                    "No complete training rows available for this target paper. Provide complete records in the same "
+                    "file or use a trained reference dataset in a future version. "
+                    f"Subject: {subject_key}; target(s): {', '.join(entirely_missing_targets)}."
+                )
+            else:
+                warnings.append(f"Not enough complete rows to train Mode B models for {subject_key}.")
             continue
 
         trained: dict[str, TrainedScenario] = {}
@@ -291,12 +312,15 @@ def _train_all_scenarios(data: pd.DataFrame) -> tuple[list[TrainedScenario], lis
 def _detect_subjects(df: pd.DataFrame, detected_max: dict[str, float | None]) -> list[dict[str, Any]]:
     if "subject_code" in df.columns and df["subject_code"].notna().any():
         group_cols = ["subject_code"]
+    elif "subject_id" in df.columns and df["subject_id"].notna().any():
+        group_cols = ["subject_id"]
     elif "subject_name" in df.columns:
         group_cols = ["subject_name"]
     else:
         return [
             {
                 "subject_key": "dataset",
+                "subject_id": None,
                 "subject_code": None,
                 "subject_name": None,
                 "inferred_paper_count": None,
@@ -307,20 +331,27 @@ def _detect_subjects(df: pd.DataFrame, detected_max: dict[str, float | None]) ->
     subjects: list[dict[str, Any]] = []
     for key, group in df.groupby(group_cols[0], dropna=False):
         subject_code = str(key).strip() if group_cols[0] == "subject_code" and pd.notna(key) else None
+        subject_id = str(key).strip() if group_cols[0] == "subject_id" and pd.notna(key) else None
         subject_name = str(key).strip() if group_cols[0] == "subject_name" and pd.notna(key) else None
         if "subject_name" in group.columns and subject_name is None and group["subject_name"].notna().any():
             subject_name = str(group["subject_name"].dropna().iloc[0]).strip()
         inferred = None
-        if subject_code and subject_code[-1:] in {"2", "3", "4"}:
+        if "paper_count" in group.columns:
+            counts = pd.to_numeric(group["paper_count"], errors="coerce").dropna().astype(int).unique()
+            if len(counts) == 1 and int(counts[0]) in {2, 3, 4}:
+                inferred = int(counts[0])
+        if inferred is None and subject_code and subject_code[-1:] in {"2", "3", "4"}:
             inferred = int(subject_code[-1])
+        subject_maxima = _detected_maxima_for_group(group, detected_max)
         subjects.append(
             {
-                "subject_key": subject_code or subject_name or "dataset",
+                "subject_key": subject_code or subject_id or subject_name or "dataset",
+                "subject_id": subject_id,
                 "subject_code": subject_code,
                 "subject_name": subject_name,
                 "inferred_paper_count": inferred,
                 "row_count": len(group),
-                "detected_max_scores": detected_max,
+                "detected_max_scores": subject_maxima,
             }
         )
     return subjects
@@ -393,7 +424,7 @@ def _executive_summary(
     best = sorted(rankings, key=lambda item: (item.get("RMSE", float("inf")), item.get("MAE", float("inf"))))[0] if rankings else {}
     return {
         "total_rows": int(len(data)),
-        "subjects_detected": int(data["subject_code"].fillna(data["subject_name"]).nunique()) if len(data) else 0,
+        "subjects_detected": int(_subject_identity_series(data).nunique()) if len(data) else 0,
         "scenarios_run": len(scenarios),
         "best_overall_model": best.get("model"),
         "best_rmse": best.get("RMSE"),
@@ -406,9 +437,34 @@ def _executive_summary(
 
 
 def _subject_groups(data: pd.DataFrame):
-    key_col = "subject_code" if data["subject_code"].notna().any() else "subject_name"
+    if data["subject_code"].notna().any():
+        key_col = "subject_code"
+    elif "subject_id" in data.columns and data["subject_id"].notna().any():
+        key_col = "subject_id"
+    else:
+        key_col = "subject_name"
     for key, group in data.groupby(key_col, dropna=False):
         yield str(key), group.copy()
+
+
+def _subject_identity_series(data: pd.DataFrame) -> pd.Series:
+    identity = data["subject_code"].copy()
+    if "subject_id" in data.columns:
+        identity = identity.fillna(data["subject_id"])
+    return identity.fillna(data["subject_name"])
+
+
+def _detected_maxima_for_group(group: pd.DataFrame, fallback: dict[str, float | None]) -> dict[str, float | None]:
+    maxima: dict[str, float | None] = {}
+    for max_col in ("p1_max", "p2_max", "p3_max", "p4_max"):
+        if max_col in group.columns:
+            values = pd.to_numeric(group[max_col], errors="coerce").dropna().unique()
+            if len(values) == 1:
+                maxima[max_col] = float(values[0])
+            continue
+        if fallback.get(max_col) is not None:
+            maxima[max_col] = fallback[max_col]
+    return maxima
 
 
 def _prepare_single_prediction(row: pd.Series, feature_columns: list[str]) -> pd.DataFrame:

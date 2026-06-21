@@ -55,6 +55,12 @@ def parse_examination_csv(upload_bytes: bytes) -> tuple[pd.DataFrame, dict[str, 
 
     df = df.reset_index(drop=True)
     df.columns = [normalize_column_name(col) for col in df.columns]
+    for max_col in ("p1_max", "p2_max", "p3_max", "p4_max"):
+        if max_col not in df.columns:
+            continue
+        values = pd.to_numeric(df[max_col], errors="coerce").dropna().unique()
+        if len(values) == 1:
+            detected_max[max_col] = float(values[0])
     return df, detected_max
 
 
@@ -65,6 +71,7 @@ def normalize_column_name(column: Any) -> str:
         "s_n": "serial_no",
         "sn": "serial_no",
         "subject_code": "subject_code",
+        "subject_id": "subject_id",
         "subjcode": "subject_code",
         "subj_code": "subject_code",
         "subject": "subject_name",
@@ -78,6 +85,8 @@ def normalize_column_name(column: Any) -> str:
         "candidate_no": "candidate_number",
         "candidate": "candidate_number",
         "candidate_id": "candidate_id",
+        "anonymized_candidate_id": "anonymized_candidate_id",
+        "paper_count": "paper_count",
         "paper_1": "p1_score",
         "paper_2": "p2_score",
         "paper_3": "p3_score",

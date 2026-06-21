@@ -12,6 +12,7 @@ export interface DetectionResponse {
 
 export interface SubjectDetection {
   subject_key: string;
+  subject_id: string | null;
   subject_code: string | null;
   subject_name: string | null;
   inferred_paper_count: number | null;
@@ -20,6 +21,7 @@ export interface SubjectDetection {
 }
 
 export interface MetadataEntry {
+  subject_id?: string;
   subject_name?: string;
   subject_code?: string;
   paper_count?: number;
@@ -141,7 +143,8 @@ function normalizeDetectionResponse(payload: Partial<DetectionResponse>): Detect
     row_count: Number(payload.row_count ?? 0),
     subjects: Array.isArray(payload.subjects)
       ? payload.subjects.map((subject) => ({
-          subject_key: subject.subject_key ?? subject.subject_code ?? subject.subject_name ?? "dataset",
+          subject_key: subject.subject_key ?? subject.subject_code ?? subject.subject_id ?? subject.subject_name ?? "dataset",
+          subject_id: subject.subject_id ?? null,
           subject_code: subject.subject_code ?? null,
           subject_name: subject.subject_name ?? null,
           inferred_paper_count: subject.inferred_paper_count ?? null,

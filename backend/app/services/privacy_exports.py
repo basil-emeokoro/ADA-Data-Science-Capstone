@@ -30,7 +30,12 @@ def build_public_research_dataset(
 
     mapping = _load_or_extend_subject_mapping(data, mapping_path)
     output = data.copy()
-    output["subject_id"] = output.apply(lambda row: _lookup_public_subject_id(row, mapping), axis=1)
+    if "subject_id" not in output.columns:
+        output["subject_id"] = pd.NA
+    missing_subject_id = output["subject_id"].isna() | (output["subject_id"].astype(str).str.strip() == "")
+    output.loc[missing_subject_id, "subject_id"] = output.loc[missing_subject_id].apply(
+        lambda row: _lookup_public_subject_id(row, mapping), axis=1
+    )
     for column in PUBLIC_EXPORT_COLUMNS:
         if column not in output.columns:
             output[column] = pd.NA

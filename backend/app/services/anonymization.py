@@ -4,11 +4,14 @@ import pandas as pd
 
 
 SENSITIVE_KEYWORDS = ("candidate", "centre", "center", "identifier", "id")
+PUBLIC_SAFE_ID_FIELDS = {"subject_id", "anonymized_candidate_id"}
 
 
 def detect_sensitive_fields(df: pd.DataFrame) -> list[str]:
     fields: list[str] = []
     for column in df.columns:
+        if column in PUBLIC_SAFE_ID_FIELDS:
+            continue
         lowered = column.lower()
         if any(keyword in lowered for keyword in SENSITIVE_KEYWORDS):
             fields.append(column)
@@ -19,6 +22,11 @@ def anonymize_dataset(df: pd.DataFrame) -> pd.DataFrame:
     """Replace direct identifiers with irreversible synthetic candidate IDs."""
 
     output = df.copy()
+    if "anonymized_candidate_id" in output.columns:
+        for column in detect_sensitive_fields(output):
+            output = output.drop(columns=[column])
+        return output
+
     if "candidate_id" not in output.columns:
         parts = []
         for column in ("centre_no", "candidate_number"):
@@ -32,6 +40,5 @@ def anonymize_dataset(df: pd.DataFrame) -> pd.DataFrame:
     mapping = {value: f"CAND_{idx:06d}" for idx, value in enumerate(pd.unique(unique_ids), start=1)}
     output["anonymized_candidate_id"] = unique_ids.map(mapping)
     for column in detect_sensitive_fields(output):
-        if column != "anonymized_candidate_id":
-            output = output.drop(columns=[column])
+        output = output.drop(columns=[column])
     return output

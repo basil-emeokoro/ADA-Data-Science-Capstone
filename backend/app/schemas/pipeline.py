@@ -10,12 +10,14 @@ class PredictionMode(str, Enum):
 
 
 class PaperCountMetadata(BaseModel):
+    subject_id: str | None = None
     subject_name: str | None = None
     subject_code: str | None = None
     paper_count: int = Field(ge=2, le=4)
 
 
 class MaxScoreMetadata(BaseModel):
+    subject_id: str | None = None
     subject_name: str | None = None
     subject_code: str | None = None
     p1_max: float | None = None
@@ -45,6 +47,7 @@ class ProcessingResponse(BaseModel):
 
 class SubjectDetection(BaseModel):
     subject_key: str
+    subject_id: str | None = None
     subject_code: str | None = None
     subject_name: str | None = None
     inferred_paper_count: int | None = None
