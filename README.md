@@ -92,6 +92,8 @@ npm.cmd run build
 5. For Mode A, click `Export ADA-Safe Dataset` to export the public privacy-preserving dataset when required.
 6. Run Mode A benchmarking or Mode B Lite prediction.
 
+After detection, `Configure Cleaning` optionally maps uploaded columns to canonical subject, candidate, paper-score, paper-count, and maximum-score fields. `Preview Cleaning` reports duplicate, clean, invalid, absent, and incomplete counts before execution. Mandatory applicability, privacy, absence, invalid-value, score-range, and metadata rules cannot be disabled.
+
 ## Privacy Model
 
 The project separates public research artifacts from private examination metadata.
@@ -125,7 +127,7 @@ Public ADA-safe datasets include only:
 - `p1_score`, `p2_score`, `p3_score`, `p4_score`
 - `p1_max`, `p2_max`, `p3_max`, `p4_max`
 
-## WAEC Paper Rules
+## Examination Paper Rules
 
 Paper applicability is inferred from the final digit of `subject_code`:
 
@@ -201,6 +203,7 @@ The modelling pipeline is deterministic and reproducible:
 - The split ratio is 80 percent training and 20 percent testing for datasets with enough rows.
 - 5-fold cross-validation is also used on the training partition where possible.
 - `random_state = 42` is fixed in the backend settings.
+- Aggregate features are recalculated after the target paper is hidden for each scenario, so partial totals, means, spreads, standard deviations, and normalized aggregates contain visible-paper information only.
 - Mode A trains benchmark models from the uploaded benchmark dataset after cleaning and experimental hiding.
 - Mode B trains from complete valid rows inside the loaded prediction dataset, not from a separate external training file. Rows with one genuine missing applicable paper are then predicted using the matching trained scenario model.
 
@@ -209,7 +212,7 @@ The modelling pipeline is deterministic and reproducible:
 - `frontend/` - React/Vite user interface.
 - `backend/` - FastAPI backend.
 - `backend/app/services/` - upload handling, CSV parsing, privacy export, and pipeline orchestration.
-- `backend/app/ml/preprocessing/` - WAEC cleaning rules, metadata recovery support, and feature engineering.
+- `backend/app/ml/preprocessing/` - examination cleaning rules, metadata recovery support, and feature engineering.
 - `backend/app/ml/models/` - model registry and model definitions.
 - `backend/app/ml/evaluation/` - regression metrics and ranking logic.
 - `backend/app/ml/explainability/` - SHAP, feature importance, residual, actual-vs-predicted, and Plotly chart helpers.

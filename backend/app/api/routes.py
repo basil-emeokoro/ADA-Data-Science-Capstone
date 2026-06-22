@@ -6,8 +6,15 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from backend.app.config.settings import get_settings
-from backend.app.schemas.pipeline import AdaSafeExportResponse, DetectionResponse, ProcessingRequest, ProcessingResponse
-from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, run_pipeline
+from backend.app.schemas.pipeline import (
+    AdaSafeExportResponse,
+    CleaningPreviewResponse,
+    ColumnMappingRequest,
+    DetectionResponse,
+    ProcessingRequest,
+    ProcessingResponse,
+)
+from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, preview_cleaning, run_pipeline
 
 
 router = APIRouter(prefix="/api", tags=["capstone"])
@@ -28,19 +35,31 @@ def download_export(filename: str) -> FileResponse:
 
 
 @router.post("/detect", response_model=DetectionResponse)
-async def detect(file: UploadFile = File(...)) -> DetectionResponse:
+async def detect(file: UploadFile = File(...), payload: str | None = Form(None)) -> DetectionResponse:
     content = await file.read()
     try:
-        return DetectionResponse(**detect_upload(content, file.filename or "upload.csv"))
+        mapping = ColumnMappingRequest.model_validate_json(payload).column_mapping if payload else {}
+        return DetectionResponse(**detect_upload(content, file.filename or "upload.csv", mapping))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/export/ada-safe", response_model=AdaSafeExportResponse)
-async def export_ada_safe(file: UploadFile = File(...)) -> AdaSafeExportResponse:
+async def export_ada_safe(file: UploadFile = File(...), payload: str | None = Form(None)) -> AdaSafeExportResponse:
     content = await file.read()
     try:
-        return export_ada_safe_dataset(content, file.filename or "upload.csv")
+        request = ProcessingRequest.model_validate_json(payload) if payload else None
+        return export_ada_safe_dataset(content, file.filename or "upload.csv", request)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cleaning/preview", response_model=CleaningPreviewResponse)
+async def cleaning_preview(file: UploadFile = File(...), payload: str = Form(...)) -> CleaningPreviewResponse:
+    content = await file.read()
+    try:
+        request = ProcessingRequest.model_validate_json(payload)
+        return preview_cleaning(content, file.filename or "upload.csv", request)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

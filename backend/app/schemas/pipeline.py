@@ -30,6 +30,25 @@ class ProcessingRequest(BaseModel):
     mode: PredictionMode
     paper_counts: list[PaperCountMetadata] = Field(default_factory=list)
     max_scores: list[MaxScoreMetadata] = Field(default_factory=list)
+    column_mapping: dict[str, str] = Field(default_factory=dict)
+
+
+class ColumnMappingRequest(BaseModel):
+    column_mapping: dict[str, str] = Field(default_factory=dict)
+
+
+class CleaningPreviewResponse(BaseModel):
+    total_rows: int
+    duplicate_rows: int
+    clean_rows: int
+    invalid_rows: int
+    absent_rows: int
+    incomplete_rows: int
+    predictable_missing_rows: int
+    unpredictable_rows: int
+    canonical_columns: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class ProcessingResponse(BaseModel):

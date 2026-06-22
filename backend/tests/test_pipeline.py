@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app
 from backend.app.ml.preprocessing.cleaning import clean_dataset
+from backend.app.ml.preprocessing.scenarios import build_features_for_target
 from backend.app.schemas.pipeline import MaxScoreMetadata, PaperCountMetadata, ProcessingRequest, PredictionMode
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
 from backend.app.services.csv_parser import parse_examination_csv
-from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, run_pipeline
+from backend.app.services.pipeline import detect_upload, export_ada_safe_dataset, preview_cleaning, run_pipeline
 
 
 def _csv(rows: list[tuple[int, int, int]], subject_code: str = "TEST_SUBJECT_3") -> bytes:
@@ -56,6 +57,58 @@ def test_parse_sample_style_csv_and_detect_maxima() -> None:
     assert list(df.columns) == ["serial_no", "subject_code", "centre_no", "candidate_number", "p1_score", "p2_score", "p3_score"]
     assert maxima == {"p1_max": 40.0, "p2_max": 60.0, "p3_max": 100.0}
     assert len(df) == 8
+
+
+def test_scenario_aggregate_features_exclude_hidden_target() -> None:
+    frame = pd.DataFrame(
+        {
+            "paper_count": [3, 3],
+            "p1_score": [10, 35],
+            "p2_score": [30, 30],
+            "p3_score": [50, 50],
+            "p1_max": [40, 40],
+            "p2_max": [60, 60],
+            "p3_max": [100, 100],
+            "p4_score": [float("nan"), float("nan")],
+            "p4_max": [float("nan"), float("nan")],
+        }
+    )
+    features, target = build_features_for_target(frame, "p1_score")
+    aggregate_columns = ["partial_total", "mean_score", "score_spread", "score_std", "mean_normalized_score"]
+    assert target.tolist() == [10, 35]
+    assert features.loc[0, aggregate_columns].tolist() == pytest.approx(features.loc[1, aggregate_columns].tolist())
+    assert features["partial_total"].tolist() == [80, 80]
+    assert "p1_normalized" not in features.columns
+
+
+def test_cleaning_preview_applies_optional_column_mapping() -> None:
+    payload = "\n".join(
+        [
+            "Public Subject,Paper Total,Public Candidate,Exam One,Exam Two,Exam One Maximum,Exam Two Maximum",
+            "SUBJ_001,2,CAND_000001,20,30,40,60",
+            "SUBJ_001,2,CAND_000002,21,31,40,60",
+        ]
+    ).encode()
+    request = ProcessingRequest(
+        mode=PredictionMode.mode_a,
+        column_mapping={
+            "subject_id": "public_subject",
+            "paper_count": "paper_total",
+            "anonymized_candidate_id": "public_candidate",
+            "p1_score": "exam_one",
+            "p2_score": "exam_two",
+            "p1_max": "exam_one_maximum",
+            "p2_max": "exam_two_maximum",
+        },
+    )
+    detection = detect_upload(payload, "custom_columns.csv", request.column_mapping)
+    assert detection["subjects"][0]["subject_id"] == "SUBJ_001"
+    assert detection["subjects"][0]["inferred_paper_count"] == 2
+    preview = preview_cleaning(payload, "custom_columns.csv", request)
+    assert not preview.errors
+    assert preview.total_rows == 2
+    assert preview.clean_rows == 2
+    assert {"subject_id", "paper_count", "p1_score", "p2_score"}.issubset(preview.canonical_columns)
 
 
 def test_parse_waec_sample_headers_and_ignore_non_applicable_minus_99() -> None:

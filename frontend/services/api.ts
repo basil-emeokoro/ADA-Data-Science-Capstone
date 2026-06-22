@@ -52,6 +52,22 @@ export interface AdaSafeExportResponse {
   columns: string[];
 }
 
+export type ColumnMapping = Record<string, string>;
+
+export interface CleaningPreviewResponse {
+  total_rows: number;
+  duplicate_rows: number;
+  clean_rows: number;
+  invalid_rows: number;
+  absent_rows: number;
+  incomplete_rows: number;
+  predictable_missing_rows: number;
+  unpredictable_rows: number;
+  canonical_columns: string[];
+  warnings: string[];
+  errors: string[];
+}
+
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 export const API_DISPLAY_URL = API_BASE_URL || "Vite proxy -> http://127.0.0.1:8002";
 
@@ -84,9 +100,12 @@ export async function checkBackendHealth(): Promise<boolean> {
   }
 }
 
-export async function detectDataset(file: File): Promise<DetectionResponse> {
+export async function detectDataset(file: File, columnMapping: ColumnMapping = {}): Promise<DetectionResponse> {
   const form = new FormData();
   form.append("file", file);
+  if (Object.values(columnMapping).some(Boolean)) {
+    form.append("payload", JSON.stringify({ column_mapping: columnMapping }));
+  }
   try {
     const response = await fetch(apiUrl("/api/detect"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
@@ -96,9 +115,16 @@ export async function detectDataset(file: File): Promise<DetectionResponse> {
   }
 }
 
-export async function exportAdaSafeDataset(file: File): Promise<AdaSafeExportResponse> {
+export async function exportAdaSafeDataset(
+  file: File,
+  mode: PredictionMode,
+  paperCounts: MetadataEntry[],
+  maxScores: MetadataEntry[],
+  columnMapping: ColumnMapping
+): Promise<AdaSafeExportResponse> {
   const form = new FormData();
   form.append("file", file);
+  form.append("payload", JSON.stringify(buildProcessingPayload(mode, paperCounts, maxScores, columnMapping)));
   try {
     const response = await fetch(apiUrl("/api/export/ada-safe"), { method: "POST", body: form });
     if (!response.ok) throw new Error(await readError(response));
@@ -112,17 +138,14 @@ export async function processDataset(
   file: File,
   mode: PredictionMode,
   paperCounts: MetadataEntry[],
-  maxScores: MetadataEntry[]
+  maxScores: MetadataEntry[],
+  columnMapping: ColumnMapping = {}
 ): Promise<ProcessingResponse> {
   const form = new FormData();
   form.append("file", file);
   form.append(
     "payload",
-    JSON.stringify({
-      mode,
-      paper_counts: paperCounts.filter((entry) => entry.paper_count),
-      max_scores: maxScores
-    })
+    JSON.stringify(buildProcessingPayload(mode, paperCounts, maxScores, columnMapping))
   );
   try {
     const response = await fetch(apiUrl("/api/process"), { method: "POST", body: form });
@@ -131,6 +154,52 @@ export async function processDataset(
   } catch (error) {
     throw new Error(networkErrorMessage(error));
   }
+}
+
+export async function previewCleaning(
+  file: File,
+  mode: PredictionMode,
+  paperCounts: MetadataEntry[],
+  maxScores: MetadataEntry[],
+  columnMapping: ColumnMapping
+): Promise<CleaningPreviewResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("payload", JSON.stringify(buildProcessingPayload(mode, paperCounts, maxScores, columnMapping)));
+  try {
+    const response = await fetch(apiUrl("/api/cleaning/preview"), { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readError(response));
+    const payload = await response.json();
+    return {
+      total_rows: Number(payload.total_rows ?? 0),
+      duplicate_rows: Number(payload.duplicate_rows ?? 0),
+      clean_rows: Number(payload.clean_rows ?? 0),
+      invalid_rows: Number(payload.invalid_rows ?? 0),
+      absent_rows: Number(payload.absent_rows ?? 0),
+      incomplete_rows: Number(payload.incomplete_rows ?? 0),
+      predictable_missing_rows: Number(payload.predictable_missing_rows ?? 0),
+      unpredictable_rows: Number(payload.unpredictable_rows ?? 0),
+      canonical_columns: Array.isArray(payload.canonical_columns) ? payload.canonical_columns : [],
+      warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+      errors: Array.isArray(payload.errors) ? payload.errors : []
+    };
+  } catch (error) {
+    throw new Error(networkErrorMessage(error));
+  }
+}
+
+function buildProcessingPayload(
+  mode: PredictionMode,
+  paperCounts: MetadataEntry[],
+  maxScores: MetadataEntry[],
+  columnMapping: ColumnMapping
+) {
+  return {
+    mode,
+    paper_counts: paperCounts.filter((entry) => entry.paper_count),
+    max_scores: maxScores,
+    column_mapping: Object.fromEntries(Object.entries(columnMapping).filter(([, source]) => Boolean(source)))
+  };
 }
 
 function normalizeDetectionResponse(payload: Partial<DetectionResponse>): DetectionResponse {

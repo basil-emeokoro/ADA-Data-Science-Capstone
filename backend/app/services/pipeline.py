@@ -17,7 +17,13 @@ from backend.app.ml.explainability.plots import (
 from backend.app.ml.preprocessing.cleaning import PAPER_SCORE_COLUMNS, clean_dataset
 from backend.app.ml.preprocessing.scenarios import build_features_for_target, scenario_targets
 from backend.app.ml.training.trainer import TrainedScenario, train_scenario
-from backend.app.schemas.pipeline import AdaSafeExportResponse, ProcessingRequest, ProcessingResponse, PredictionMode
+from backend.app.schemas.pipeline import (
+    AdaSafeExportResponse,
+    CleaningPreviewResponse,
+    ProcessingRequest,
+    ProcessingResponse,
+    PredictionMode,
+)
 from backend.app.services.anonymization import anonymize_dataset, detect_sensitive_fields
 from backend.app.services.csv_parser import parse_examination_csv
 from backend.app.services.privacy_exports import build_public_research_dataset, private_subject_mapping_path
@@ -25,8 +31,9 @@ from backend.app.utils.files import timestamped_name
 from backend.app.utils.json import make_json_safe
 
 
-def detect_upload(upload_bytes: bytes, filename: str) -> dict[str, Any]:
+def detect_upload(upload_bytes: bytes, filename: str, column_mapping: dict[str, str] | None = None) -> dict[str, Any]:
     df, detected_max = parse_examination_csv(upload_bytes)
+    df = _apply_column_mapping(df, column_mapping or {})
     inferred = None
     if "paper_count" in df.columns:
         counts = pd.to_numeric(df["paper_count"], errors="coerce").dropna().astype(int).unique()
@@ -48,11 +55,38 @@ def detect_upload(upload_bytes: bytes, filename: str) -> dict[str, Any]:
     }
 
 
-def export_ada_safe_dataset(upload_bytes: bytes, filename: str) -> AdaSafeExportResponse:
+CANONICAL_MAPPING_FIELDS = {
+    "subject_id",
+    "subject_code",
+    "subject_name",
+    "candidate_number",
+    "candidate_id",
+    "anonymized_candidate_id",
+    "paper_count",
+    *PAPER_SCORE_COLUMNS,
+    "p1_max",
+    "p2_max",
+    "p3_max",
+    "p4_max",
+}
+
+
+def export_ada_safe_dataset(
+    upload_bytes: bytes,
+    filename: str,
+    request: ProcessingRequest | None = None,
+) -> AdaSafeExportResponse:
     raw_df, detected_max = parse_examination_csv(upload_bytes)
+    raw_df = _apply_column_mapping(raw_df, request.column_mapping if request else {})
     sensitive_fields = detect_sensitive_fields(raw_df)
     anonymized = anonymize_dataset(raw_df)
-    cleaned = clean_dataset(anonymized, detected_max_scores=detected_max, require_complete_scores=True)
+    cleaned = clean_dataset(
+        anonymized,
+        detected_max_scores=detected_max,
+        paper_counts=request.paper_counts if request else [],
+        max_scores=request.max_scores if request else [],
+        require_complete_scores=True,
+    )
     if cleaned.errors:
         raise ValueError("ADA-safe public export requires complete metadata and valid cleaned records: " + "; ".join(cleaned.errors))
     settings = get_settings()
@@ -70,9 +104,73 @@ def export_ada_safe_dataset(upload_bytes: bytes, filename: str) -> AdaSafeExport
 
 def run_pipeline(upload_bytes: bytes, filename: str, request: ProcessingRequest) -> ProcessingResponse:
     raw_df, detected_max = parse_examination_csv(upload_bytes)
+    raw_df = _apply_column_mapping(raw_df, request.column_mapping)
     if request.mode == PredictionMode.mode_a:
         return _run_mode_a(raw_df, detected_max, request)
     return _run_mode_b(raw_df, detected_max, request)
+
+
+def preview_cleaning(upload_bytes: bytes, filename: str, request: ProcessingRequest) -> CleaningPreviewResponse:
+    raw_df, detected_max = parse_examination_csv(upload_bytes)
+    raw_df = _apply_column_mapping(raw_df, request.column_mapping)
+    total_rows = len(raw_df)
+    duplicate_rows = int(raw_df.duplicated().sum())
+    working = anonymize_dataset(raw_df) if request.mode == PredictionMode.mode_a else raw_df
+    cleaned = clean_dataset(
+        working,
+        detected_max_scores=detected_max,
+        paper_counts=request.paper_counts,
+        max_scores=request.max_scores,
+        require_complete_scores=request.mode == PredictionMode.mode_a,
+    )
+    reasons = cleaned.invalid_records.get("record_reason", pd.Series(dtype="object")).astype(str)
+    incomplete_rows = int(reasons.str.contains("incomplete applicable", case=False, na=False).sum())
+    invalid_rows = max(0, len(cleaned.invalid_records) - incomplete_rows)
+    predictable_missing_rows = 0
+    unpredictable_rows = 0
+    if request.mode == PredictionMode.mode_b and not cleaned.data.empty:
+        for _, subject_df in _subject_groups(cleaned.data):
+            paper_count = int(subject_df["paper_count"].iloc[0])
+            active = [f"p{index}_score" for index in range(1, paper_count + 1)]
+            missing = subject_df[active].isna().sum(axis=1)
+            predictable_missing_rows += int((missing == 1).sum())
+            unpredictable_rows += int((missing > 1).sum())
+    return CleaningPreviewResponse(
+        total_rows=total_rows,
+        duplicate_rows=duplicate_rows,
+        clean_rows=len(cleaned.data),
+        invalid_rows=invalid_rows,
+        absent_rows=len(cleaned.absent_records),
+        incomplete_rows=incomplete_rows,
+        predictable_missing_rows=predictable_missing_rows,
+        unpredictable_rows=unpredictable_rows,
+        canonical_columns=list(cleaned.data.columns),
+        warnings=cleaned.warnings,
+        errors=cleaned.errors,
+    )
+
+
+def _apply_column_mapping(data: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
+    output = data.copy()
+    renames: dict[str, str] = {}
+    selected_sources: set[str] = set()
+    for target, source in mapping.items():
+        target = str(target).strip()
+        source = str(source).strip()
+        if not source:
+            continue
+        if target not in CANONICAL_MAPPING_FIELDS:
+            raise ValueError(f"Unsupported canonical field in column mapping: {target}.")
+        if source not in output.columns:
+            raise ValueError(f"Mapped source column was not found: {source}.")
+        if source in selected_sources:
+            raise ValueError(f"Source column is mapped more than once: {source}.")
+        if target in output.columns and source != target:
+            raise ValueError(f"Cannot map {source} to {target}; the canonical field already exists.")
+        selected_sources.add(source)
+        if source != target:
+            renames[source] = target
+    return output.rename(columns=renames)
 
 
 def _run_mode_a(raw_df: pd.DataFrame, detected_max: dict[str, float | None], request: ProcessingRequest) -> ProcessingResponse:

@@ -443,6 +443,98 @@ select {
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
 }
 
+.cleaningModal {
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+}
+
+.cleaningNotice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.mappingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mappingGrid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.cleaningActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cleaningPreview {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.cleaningPreview p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.previewCounts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.previewCounts span {
+  display: grid;
+  gap: 4px;
+  min-height: 66px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.previewCounts strong {
+  color: var(--text);
+  font-size: 1.2rem;
+}
+
+@media (max-width: 820px) {
+  .mappingGrid,
+  .previewCounts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .mappingGrid,
+  .previewCounts {
+    grid-template-columns: 1fr;
+  }
+}
+
 .modalHeader {
   display: flex;
   justify-content: space-between;

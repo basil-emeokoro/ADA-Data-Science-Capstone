@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Maximize2, Moon, Play, Search, Shield, Sun, Upload, X } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Download, Eye, Loader2, Maximize2, Moon, Play, Search, Settings2, Shield, Sun, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { MetricTable } from "../components/MetricTable";
 import { PlotPanel } from "../components/PlotPanel";
@@ -7,11 +7,14 @@ import {
   AdaSafeExportResponse,
   API_DISPLAY_URL,
   checkBackendHealth,
+  CleaningPreviewResponse,
+  ColumnMapping,
   detectDataset,
   DetectionResponse,
   exportAdaSafeDataset,
   MetadataEntry,
   PredictionMode,
+  previewCleaning,
   processDataset,
   ProcessingResponse
 } from "../services/api";
@@ -19,6 +22,23 @@ import {
 const emptyMaxima: MetadataEntry = { subject_id: "", subject_code: "", subject_name: "", p1_max: undefined, p2_max: undefined, p3_max: undefined, p4_max: undefined };
 const emptyPaperCount: MetadataEntry = { subject_id: "", subject_code: "", subject_name: "", paper_count: 3 };
 const paperMaxKeys = ["p1_max", "p2_max", "p3_max", "p4_max"] as const;
+const cleaningFields = [
+  ["subject_id", "Public subject ID"],
+  ["subject_code", "Subject code"],
+  ["subject_name", "Subject name"],
+  ["anonymized_candidate_id", "Anonymized candidate ID"],
+  ["candidate_number", "Candidate number"],
+  ["candidate_id", "Candidate ID"],
+  ["paper_count", "Paper count"],
+  ["p1_score", "P1 score"],
+  ["p2_score", "P2 score"],
+  ["p3_score", "P3 score"],
+  ["p4_score", "P4 score"],
+  ["p1_max", "P1 maximum"],
+  ["p2_max", "P2 maximum"],
+  ["p3_max", "P3 maximum"],
+  ["p4_max", "P4 maximum"]
+] as const;
 type MaximaPatch = Partial<Record<(typeof paperMaxKeys)[number], number>>;
 
 export function App() {
@@ -37,6 +57,9 @@ export function App() {
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
   const [metadataFilter, setMetadataFilter] = useState("");
   const [bulkMaxima, setBulkMaxima] = useState<MetadataEntry>({});
+  const [cleaningEditorOpen, setCleaningEditorOpen] = useState(false);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [cleaningPreview, setCleaningPreview] = useState<CleaningPreviewResponse | null>(null);
 
   const flattenedPlots = useMemo(() => {
     if (!result?.plots) return {};
@@ -100,23 +123,47 @@ export function App() {
     setError(null);
     try {
       const response = await detectDataset(file);
-      setDetection(response);
-      setResult(null);
-      setAdaExport(null);
-      const subjects = response.subjects ?? [];
-      const rows = subjects.length
-        ? subjects.map((subject) => ({
-            ...emptyMaxima,
-            subject_id: subject.subject_id ?? "",
-            subject_code: subject.subject_code ?? "",
-            subject_name: subject.subject_name ?? "",
-            paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
-            ...subject.detected_max_scores
-          }))
-        : [{ ...emptyPaperCount, ...emptyMaxima, ...response.detected_max_scores }];
-      setMetadataRows(rows);
+      applyDetection(response);
+      setColumnMapping(Object.fromEntries(cleaningFields
+        .filter(([field]) => response.columns.includes(field))
+        .map(([field]) => [field, field])));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Detection failed");
+    } finally {
+      setBusy(false);
+      setBusyLabel("");
+    }
+  }
+
+  function applyDetection(response: DetectionResponse) {
+    setDetection(response);
+    setResult(null);
+    setAdaExport(null);
+    setCleaningPreview(null);
+    const subjects = response.subjects ?? [];
+    const rows = subjects.length
+      ? subjects.map((subject) => ({
+          ...emptyMaxima,
+          subject_id: subject.subject_id ?? "",
+          subject_code: subject.subject_code ?? "",
+          subject_name: subject.subject_name ?? "",
+          paper_count: subject.inferred_paper_count ?? response.inferred_paper_count ?? 3,
+          ...subject.detected_max_scores
+        }))
+      : [{ ...emptyPaperCount, ...emptyMaxima, ...response.detected_max_scores }];
+    setMetadataRows(rows);
+  }
+
+  async function onApplyMapping() {
+    if (!file) return;
+    setBusy(true);
+    setBusyLabel("Applying field mapping");
+    setError(null);
+    try {
+      applyDetection(await detectDataset(file, columnMapping));
+      setCleaningEditorOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Column mapping failed");
     } finally {
       setBusy(false);
       setBusyLabel("");
@@ -134,7 +181,7 @@ export function App() {
     setBusyLabel(mode === "mode_a" ? "Running benchmark pipeline" : "Predicting missing scores");
     setError(null);
     try {
-      const response = await processDataset(file, mode, metadataRows, metadataRows);
+      const response = await processDataset(file, mode, metadataRows, metadataRows, columnMapping);
       setResult(response);
       const firstPlot = Object.keys({ ...(response.plots?.eda ?? {}), ...(response.plots ?? {}) })[0];
       if (firstPlot) setSelectedPlot(firstPlot);
@@ -152,9 +199,24 @@ export function App() {
     setBusyLabel("Exporting ADA-safe dataset");
     setError(null);
     try {
-      setAdaExport(await exportAdaSafeDataset(file));
+      setAdaExport(await exportAdaSafeDataset(file, mode, metadataRows, metadataRows, columnMapping));
     } catch (err) {
       setError(err instanceof Error ? err.message : "ADA-safe export failed");
+    } finally {
+      setBusy(false);
+      setBusyLabel("");
+    }
+  }
+
+  async function onPreviewCleaning() {
+    if (!file) return;
+    setBusy(true);
+    setBusyLabel("Previewing cleaning results");
+    setError(null);
+    try {
+      setCleaningPreview(await previewCleaning(file, mode, metadataRows, metadataRows, columnMapping));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cleaning preview failed");
     } finally {
       setBusy(false);
       setBusyLabel("");
@@ -216,6 +278,7 @@ export function App() {
           </div>
           <div className="actions">
             <button onClick={onDetect} disabled={!file || busy}>{busy ? <Loader2 className="spin" size={16} /> : <Shield size={16} />} Detect</button>
+            <button onClick={() => setCleaningEditorOpen(true)} disabled={!detection || busy}><Settings2 size={16} /> Configure Cleaning</button>
             <button onClick={onExportAdaSafe} disabled={!file || busy || !detection || mode !== "mode_a"}><Download size={16} /> Export ADA-Safe Dataset</button>
             <button onClick={onRun} disabled={!file || busy || Boolean(metadataValidation)}>{busy ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Run Pipeline</button>
           </div>
@@ -287,6 +350,60 @@ export function App() {
               </div>
             </div>
             <MetadataEditorTable rows={filteredMetadataRows} updateMetadataRow={updateMetadataRow} />
+          </div>
+        </section>
+      )}
+
+      {cleaningEditorOpen && detection && (
+        <section className="modalOverlay" role="dialog" aria-modal="true" aria-label="Cleaning configuration">
+          <div className="cleaningModal">
+            <div className="modalHeader">
+              <div>
+                <h2>Cleaning Configuration</h2>
+                <span>Optionally map uploaded fields and preview mandatory cleaning outcomes.</span>
+              </div>
+              <button className="iconButton" onClick={() => setCleaningEditorOpen(false)} aria-label="Close cleaning configuration"><X size={18} /></button>
+            </div>
+            <div className="cleaningNotice">
+              <Shield size={18} />
+              <span>Applicability, absence, invalid-value, duplicate, score-range, and metadata rules remain enforced.</span>
+            </div>
+            <div className="mappingGrid">
+              {cleaningFields.map(([field, label]) => (
+                <label key={field}>
+                  <span>{label}</span>
+                  <select value={columnMapping[field] ?? ""} onChange={(event) => {
+                    setColumnMapping((current) => ({ ...current, [field]: event.target.value }));
+                    setCleaningPreview(null);
+                  }}>
+                    <option value="">Not mapped</option>
+                    {detection.columns.map((column) => <option key={column} value={column}>{column}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div className="cleaningActions">
+              <button className="secondaryButton" onClick={onPreviewCleaning} disabled={busy || Boolean(metadataValidation)}><Eye size={16} /> Preview Cleaning</button>
+              <button className="secondaryButton" onClick={onApplyMapping} disabled={busy}><Settings2 size={16} /> Apply Mapping and Re-detect</button>
+              <button className="secondaryButton" onClick={() => setCleaningEditorOpen(false)}>Close</button>
+            </div>
+            {metadataValidation && <div className="noticeLine"><AlertTriangle size={16} /> Complete required metadata before previewing cleaning.</div>}
+            {cleaningPreview && (
+              <div className="cleaningPreview">
+                <div className="previewCounts">
+                  <span>Total<strong>{cleaningPreview.total_rows}</strong></span>
+                  <span>Duplicates<strong>{cleaningPreview.duplicate_rows}</strong></span>
+                  <span>Clean<strong>{cleaningPreview.clean_rows}</strong></span>
+                  <span>Invalid<strong>{cleaningPreview.invalid_rows}</strong></span>
+                  <span>Absent<strong>{cleaningPreview.absent_rows}</strong></span>
+                  <span>Incomplete<strong>{cleaningPreview.incomplete_rows}</strong></span>
+                  {mode === "mode_b" && <span>Predictable missing<strong>{cleaningPreview.predictable_missing_rows}</strong></span>}
+                  {mode === "mode_b" && <span>Unpredictable<strong>{cleaningPreview.unpredictable_rows}</strong></span>}
+                </div>
+                {cleaningPreview.errors.map((message) => <div className="alert" key={message}><AlertTriangle size={16} /> {message}</div>)}
+                <p>{cleaningPreview.errors.length ? "Resolve the listed issues before pipeline execution." : "Preview complete. The mapping will be applied when the pipeline runs."}</p>
+              </div>
+            )}
           </div>
         </section>
       )}
