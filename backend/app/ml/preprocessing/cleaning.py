@@ -91,6 +91,7 @@ def clean_dataset(
     data = _drop_non_applicable_scores(data)
 
     _apply_max_scores(data, detected_max_scores or {}, max_scores or [])
+    data = _drop_non_applicable_scores(data)
     missing_max = _missing_required_maxima(data)
     if missing_max:
         errors.append(f"Maximum scores are missing for required papers: {', '.join(sorted(missing_max))}.")

@@ -151,6 +151,26 @@ def test_public_schema_detection_and_export_preserve_public_ids() -> None:
     assert set(exported["subject_id"]) == {"SUBJ_001"}
     assert set(exported["anonymized_candidate_id"]) == {f"CAND_{idx:06d}" for idx in range(1, 13)}
     assert "subject_code" not in exported.columns
+    assert exported["p4_max"].isna().all()
+
+
+def test_public_export_blanks_non_applicable_maxima_after_global_detection() -> None:
+    payload = "\n".join(
+        [
+            "subject_id,paper_count,anonymized_candidate_id,p1_score,p2_score,p3_score,p4_score,p1_max,p2_max,p3_max,p4_max",
+            "SUBJ_001,2,CAND_000001,20,30,,,40,60,,",
+            "SUBJ_002,3,CAND_000002,21,31,41,,40,60,100,",
+            "SUBJ_003,4,CAND_000003,22,32,42,52,40,60,100,100",
+            "SUBJ_003,4,CAND_000004,23,33,43,53,40,60,100,100",
+            "SUBJ_001,2,CAND_000005,24,34,,,40,60,,",
+            "SUBJ_002,3,CAND_000006,25,35,45,,40,60,100,",
+        ]
+    ).encode()
+    response = export_ada_safe_dataset(payload, "public_with_p4_max.csv")
+    exported = pd.read_csv(response.export_path)
+    assert exported.loc[exported["paper_count"] == 2, ["p3_max", "p4_max"]].isna().all().all()
+    assert exported.loc[exported["paper_count"] == 3, "p4_max"].isna().all()
+    assert exported.loc[exported["paper_count"] == 4, "p4_max"].eq(100).all()
 
 
 def test_missing_metadata_requires_paper_count() -> None:
