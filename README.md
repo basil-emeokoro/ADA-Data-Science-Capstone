@@ -323,13 +323,13 @@ It demonstrates dataset loading, detection, metadata recovery, privacy-preservin
 
 ## Submission Package
 
-For ADA/GitHub submission, use the clean generated package:
+ADA/GitHub clean generated submission package:
 
 ```text
 ADA_Data_Science_Submission_Basil_Emeokoro/
 ```
 
-This folder excludes confidential raw data, `Working Documents/`, private subject mappings, `.venv`, logs, caches, and old development exports. Its public sample dataset is:
+This folder excludes confidential raw data, private subject mappings, `.venv`, logs, caches, and old development exports. Its public sample dataset is:
 
 ```text
 sample_data/ADA_Public_Dataset.csv
