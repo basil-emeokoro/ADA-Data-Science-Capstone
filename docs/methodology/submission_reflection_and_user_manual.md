@@ -171,8 +171,8 @@ The current system is suitable for capstone submission, local demonstration, Doc
 
 ## Suggested Reflection Message
 
-The submitted application is a privacy-preserving machine learning web system for predicting missing examination component scores. It supports both experimental benchmarking and operational missing-score prediction. The system includes dataset upload, sensitive-field detection, anonymization, subject pseudonymization for public exports, metadata recovery, configurable cleaning, model comparison, explainability, dashboard visualization, and downloadable evidence files.
+Live application: https://ada-data-science-capstone.onrender.com/
 
-The application was implemented with React, TypeScript, FastAPI, Python 3.12, scikit-learn, XGBoost, CatBoost, SHAP, and Plotly. It is also Dockerized for reproducible local deployment. A key research-validity improvement is that engineered aggregate features are recalculated after each target paper is hidden, preventing target leakage during benchmark evaluation.
+The deployed application demonstrates a privacy-preserving machine learning workflow for examination component score prediction. It supports public-safe dataset upload, subject pseudonymization, metadata validation, configurable cleaning, experimental model benchmarking, missing-score prediction, explainability, dashboard visualization, and export generation. The Docker deployment is hosted on Render, with the health endpoint available at `/api/health`.
 
-For deployment, the Docker image can be run locally or hosted on a Docker-compatible service such as Render. Full multi-subject benchmarking is best executed locally because hosted demonstration resources may be limited, while the deployed version is suitable for demonstrating upload, detection, metadata validation, cleaning preview, smaller runs, visualization, and export workflows.
+For large multi-subject benchmarking, local Docker execution is recommended.
