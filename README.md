@@ -68,6 +68,15 @@ docker run --rm -p 8000:8000 ada-score-prediction:latest
 
 Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/health` for the API health check.
 
+If Docker reports `Bind for 0.0.0.0:8000 failed: port is already allocated`, another process or container is already using port `8000`. Either stop the existing process/container, or run this application on another host port:
+
+```powershell
+docker ps
+docker run --rm -p 8001:8000 ada-score-prediction:latest
+```
+
+Then open `http://localhost:8001`.
+
 To stop a foreground Docker container, press `Ctrl+C` in the terminal where it is running. If the container was started in detached mode, list containers with `docker ps` and stop it with `docker stop <container_name_or_id>`.
 
 The `.dockerignore` file excludes confidential inputs, `Working Documents/`, generated reports, exported CSVs, virtual environments, and frontend build folders from the Docker build context.
