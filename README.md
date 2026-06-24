@@ -626,4 +626,4 @@ Psychometrician | AI & Machine Learning Engineer | Explainable AI Researcher | D
 
 GitHub: [https://github.com/basil-emeokoro](https://github.com/basil-emeokoro)
 
-LinkedIn: _Add LinkedIn profile URL._
+LinkedIn: [https://www.linkedin.com/in/basil-emeokoro-0b4b0b82](https://www.linkedin.com/in/basil-emeokoro-0b4b0b82)
